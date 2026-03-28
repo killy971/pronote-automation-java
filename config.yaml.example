@@ -1,0 +1,61 @@
+# Pronote Automation — Configuration Template
+# Copy this file to config.yaml and fill in your values.
+# config.yaml is excluded from git.
+
+pronote:
+  # Full base URL of your Pronote instance (trailing slash required)
+  baseUrl: "https://2170001x.index-education.net/pronote/"
+  # Login portal: PARENT or STUDENT
+  loginMode: PARENT
+  # Pronote username
+  username: "your_username"
+  # Pronote password (or set env var PRONOTE_PASSWORD to avoid storing it here)
+  password: "your_password"
+  # How many weeks back to fetch assignments (0 = current week only)
+  weeksBefore: 0
+  # How many weeks ahead to fetch assignments
+  weeksAhead: 2
+  # Optional: class group filter. Only timetable entries belonging to this group are kept.
+  # Entries with no group (whole-class lessons) are always included.
+  # Use the group label as it appears in Pronote, e.g. "6C SIA G1".
+  # Omit or leave blank to disable filtering.
+  # group: "6C SIA G1"
+
+data:
+  # Directory for snapshots, session, and lockout files
+  directory: "./data"
+  # Number of days to keep archived snapshots
+  archiveRetainDays: 30
+
+safety:
+  # Minimum delay between HTTP requests (milliseconds)
+  minDelayMs: 2000
+  # Maximum random jitter added to delay (milliseconds)
+  jitterMs: 500
+  # Abort and lock out after this many consecutive login failures
+  maxLoginFailures: 3
+
+notifications:
+  # Both channels can be left disabled during initial setup.
+  # The diff result is always written to data/diff-latest.json and data/diff-history.log
+  # regardless of notification settings.
+
+  ntfy:
+    enabled: false
+    # ntfy server URL (use https://ntfy.sh for the public instance, or self-host)
+    serverUrl: "https://ntfy.sh"
+    # Topic name — keep this hard-to-guess if using the public server
+    topic: "your-secret-topic-name"
+    # Bearer token (optional, for protected topics)
+    # token: "your-ntfy-token"
+
+  email:
+    enabled: false
+    smtpHost: "smtp.gmail.com"
+    smtpPort: 587
+    # SMTP username (often your email address)
+    username: "you@gmail.com"
+    # SMTP password or App Password (for Gmail with 2FA)
+    password: "your_app_password"
+    from: "you@gmail.com"
+    to: "recipient@example.com"

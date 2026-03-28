@@ -1,0 +1,24 @@
+[Unit]
+Description=Pronote Automation Job
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pronote
+WorkingDirectory=/opt/pronote
+ExecStart=/usr/bin/java \
+    -Xmx128m \
+    -Xms32m \
+    -DLOG_LEVEL=INFO \
+    -jar /opt/pronote/pronote-automation.jar \
+    --config /opt/pronote/config.yaml
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pronote
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/pronote/data
