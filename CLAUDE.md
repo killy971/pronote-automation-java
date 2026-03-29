@@ -122,6 +122,10 @@ cheap call. If the probe succeeds, no login is performed.
 
 ## Extending the Scraper
 
+**Before implementing any new scraper, read [`docs/pronotepy-reference.md`](docs/pronotepy-reference.md) first.**
+It contains the exact API function names, onglet numbers, param structures, and response field mappings for every known Pronote API.
+For edge cases or newly discovered functions, verify against `vendor/pronotepy/pronotepy/clients.py` and `dataClasses.py` (local clone, gitignored).
+
 ### Adding a new data type (e.g., grades)
 
 1. Find the Pronote API function name in pronotepy source (e.g., `"ListeNotesEleve"`).

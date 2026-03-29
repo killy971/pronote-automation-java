@@ -8,6 +8,9 @@ import com.pronote.client.PronoteHttpClient;
 import com.pronote.config.AppConfig;
 import com.pronote.config.ConfigLoader;
 import com.pronote.domain.Assignment;
+import com.pronote.domain.CompetenceEvaluation;
+import com.pronote.domain.Grade;
+import com.pronote.domain.SchoolLifeEvent;
 import com.pronote.domain.TimetableEntry;
 import com.pronote.notification.*;
 import com.pronote.persistence.DiffEngine;
@@ -20,6 +23,9 @@ import com.pronote.safety.RateLimiter;
 import com.pronote.domain.AttachmentRef;
 import com.pronote.scraper.AssignmentScraper;
 import com.pronote.scraper.AttachmentDownloader;
+import com.pronote.scraper.EvaluationScraper;
+import com.pronote.scraper.GradeScraper;
+import com.pronote.scraper.SchoolLifeScraper;
 import com.pronote.scraper.TimetableScraper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -79,52 +85,100 @@ public class Main {
         SessionStore sessionStore = new SessionStore(dataDir);
         PronoteSession session = acquireSession(config, httpClient, sessionStore, lockoutGuard);
 
-        // ---- 4. Fetch data -----------------------------------------------
+        AppConfig.FeaturesConfig features = config.getFeatures();
+
+        // ---- 4. Fetch data (only for enabled types) -----------------------
         log.info("Fetching assignments...");
         AssignmentScraper assignmentScraper = new AssignmentScraper();
-        List<Assignment> assignments = assignmentScraper.fetch(session, httpClient, config);
+        List<Assignment> assignments = features.isAssignments()
+                ? assignmentScraper.fetch(session, httpClient, config) : List.of();
 
         log.info("Fetching timetable...");
         TimetableScraper timetableScraper = new TimetableScraper();
-        List<TimetableEntry> timetable = timetableScraper.fetch(session, httpClient, config);
+        List<TimetableEntry> timetable = features.isTimetable()
+                ? timetableScraper.fetch(session, httpClient, config) : List.of();
 
-        // ---- 5. Load previous snapshots -----------------------------------
+        GradeScraper gradeScraper = new GradeScraper();
+        List<Grade> grades = List.of();
+        if (features.isGrades()) {
+            log.info("Fetching grades...");
+            grades = gradeScraper.fetch(session, httpClient, session.getPeriods());
+        } else {
+            log.debug("Grades feature disabled — skipping.");
+        }
+
+        EvaluationScraper evaluationScraper = new EvaluationScraper();
+        List<CompetenceEvaluation> evaluations = List.of();
+        if (features.isEvaluations()) {
+            log.info("Fetching competence evaluations...");
+            evaluations = evaluationScraper.fetch(session, httpClient, session.getPeriods());
+        } else {
+            log.debug("Evaluations feature disabled — skipping.");
+        }
+
+        SchoolLifeScraper schoolLifeScraper = new SchoolLifeScraper();
+        List<SchoolLifeEvent> schoolLife = List.of();
+        if (features.isSchoolLife()) {
+            log.info("Fetching vie scolaire events...");
+            schoolLife = schoolLifeScraper.fetch(session, httpClient, session.getPeriods());
+        } else {
+            log.debug("School-life feature disabled — skipping.");
+        }
+
+        // ---- 5. Load previous snapshots (only for enabled types) ----------
         SnapshotStore snapshotStore = new SnapshotStore(dataDir, config.getData().getArchiveRetainDays());
 
-        Optional<List<Assignment>> prevAssignments = snapshotStore.loadLatest(
-                "assignments", new TypeReference<>() {});
-        Optional<List<TimetableEntry>> prevTimetable = snapshotStore.loadLatest(
-                "timetable", new TypeReference<>() {});
+        Optional<List<Assignment>> prevAssignments = features.isAssignments()
+                ? snapshotStore.loadLatest("assignments", new TypeReference<>() {}) : Optional.empty();
+        Optional<List<TimetableEntry>> prevTimetable = features.isTimetable()
+                ? snapshotStore.loadLatest("timetable", new TypeReference<>() {}) : Optional.empty();
+        Optional<List<Grade>> prevGrades = features.isGrades()
+                ? snapshotStore.loadLatest("grades", new TypeReference<>() {}) : Optional.empty();
+        Optional<List<CompetenceEvaluation>> prevEvaluations = features.isEvaluations()
+                ? snapshotStore.loadLatest("evaluations", new TypeReference<>() {}) : Optional.empty();
+        Optional<List<SchoolLifeEvent>> prevSchoolLife = features.isSchoolLife()
+                ? snapshotStore.loadLatest("school-life", new TypeReference<>() {}) : Optional.empty();
 
-        // First run: no previous snapshot exists yet — just save the baseline.
-        boolean isFirstRun = prevAssignments.isEmpty() && prevTimetable.isEmpty();
+        // First run: all enabled types have no snapshot yet.
+        boolean isFirstRun = prevAssignments.isEmpty() && prevTimetable.isEmpty()
+                && prevGrades.isEmpty() && prevEvaluations.isEmpty() && prevSchoolLife.isEmpty();
 
         // ---- 6. Diff -------------------------------------------------------
+        // For data types enabled for the first time on an existing installation,
+        // treat the missing snapshot as a silent baseline (empty diff, no notification).
         DiffEngine diffEngine = new DiffEngine();
-        DiffResult<Assignment> assignmentDiff = diffEngine.diff(
-                prevAssignments.orElse(List.of()), assignments);
-        DiffResult<TimetableEntry> timetableDiff = diffEngine.diff(
-                prevTimetable.orElse(List.of()), timetable);
+        DiffResult<Assignment> assignmentDiff = prevAssignments.isPresent()
+                ? diffEngine.diff(prevAssignments.get(), assignments) : emptyDiff();
+        DiffResult<TimetableEntry> timetableDiff = prevTimetable.isPresent()
+                ? diffEngine.diff(prevTimetable.get(), timetable) : emptyDiff();
+        DiffResult<Grade> gradeDiff = prevGrades.isPresent()
+                ? diffEngine.diff(prevGrades.get(), grades) : emptyDiff();
+        DiffResult<CompetenceEvaluation> evaluationDiff = prevEvaluations.isPresent()
+                ? diffEngine.diff(prevEvaluations.get(), evaluations) : emptyDiff();
+        DiffResult<SchoolLifeEvent> schoolLifeDiff = prevSchoolLife.isPresent()
+                ? diffEngine.diff(prevSchoolLife.get(), schoolLife) : emptyDiff();
 
         // ---- 7. Download assignment attachments ----------------------------
-        // Only G=1 (uploaded files) are downloaded; G=0 hyperlinks are stored as-is.
-        // AttachmentDownloader is idempotent: checks Files.exists() before each download,
-        // so unchanged files are skipped and previously-failed downloads are retried.
-        Path attachmentsDir = dataDir.resolve("snapshots").resolve("assignments").resolve("attachments");
-        AttachmentDownloader attachmentDownloader = new AttachmentDownloader(httpClient, session, attachmentsDir);
-        attachmentDownloader.processAttachments(assignments);
+        if (features.isAssignments()) {
+            Path attachmentsDir = dataDir.resolve("snapshots").resolve("assignments").resolve("attachments");
+            AttachmentDownloader attachmentDownloader = new AttachmentDownloader(httpClient, session, attachmentsDir);
+            attachmentDownloader.processAttachments(assignments);
+        }
 
         // ---- 8. Write persistent diff report (always) ---------------------
         DiffReporter reporter = new DiffReporter(dataDir);
-        reporter.record(assignmentDiff, timetableDiff, isFirstRun);
+        reporter.record(assignmentDiff, timetableDiff, gradeDiff, evaluationDiff,
+                schoolLifeDiff, isFirstRun);
 
-        if (!isFirstRun && (!assignmentDiff.isEmpty() || !timetableDiff.isEmpty())) {
+        if (!isFirstRun && (!assignmentDiff.isEmpty() || !timetableDiff.isEmpty()
+                || !gradeDiff.isEmpty() || !evaluationDiff.isEmpty() || !schoolLifeDiff.isEmpty())) {
             boolean notificationsEnabled = config.getNotifications().getNtfy().isEnabled()
                     || config.getNotifications().getEmail().isEnabled();
             if (notificationsEnabled) {
                 log.info("Changes detected — sending notifications...");
                 NotificationService notifier = buildNotifier(config);
-                NotificationPayload payload = buildPayload(assignmentDiff, timetableDiff);
+                NotificationPayload payload = buildPayload(assignmentDiff, timetableDiff,
+                        gradeDiff, evaluationDiff, schoolLifeDiff);
                 try {
                     notifier.send(payload);
                 } catch (NotificationService.NotificationException e) {
@@ -136,9 +190,12 @@ public class Main {
             }
         }
 
-        // ---- 10. Persist new snapshots ------------------------------------
-        snapshotStore.saveSnapshot("assignments", assignments);
-        snapshotStore.saveSnapshot("timetable", timetable);
+        // ---- 10. Persist new snapshots (only for enabled types) -----------
+        if (features.isAssignments())  snapshotStore.saveSnapshot("assignments", assignments);
+        if (features.isTimetable())    snapshotStore.saveSnapshot("timetable",   timetable);
+        if (features.isGrades())       snapshotStore.saveSnapshot("grades",      grades);
+        if (features.isEvaluations())  snapshotStore.saveSnapshot("evaluations", evaluations);
+        if (features.isSchoolLife())   snapshotStore.saveSnapshot("school-life", schoolLife);
 
         log.info("Job completed successfully.");
     }
@@ -187,8 +244,15 @@ public class Main {
         return new CompositeNotifier(services);
     }
 
+    private static <T extends com.pronote.persistence.Identifiable> DiffResult<T> emptyDiff() {
+        return new DiffResult<>(List.of(), List.of(), Map.of());
+    }
+
     private static NotificationPayload buildPayload(DiffResult<Assignment> assignmentDiff,
-                                                    DiffResult<TimetableEntry> timetableDiff) {
+                                                    DiffResult<TimetableEntry> timetableDiff,
+                                                    DiffResult<Grade> gradeDiff,
+                                                    DiffResult<CompetenceEvaluation> evaluationDiff,
+                                                    DiffResult<SchoolLifeEvent> schoolLifeDiff) {
         StringBuilder body = new StringBuilder();
 
         if (!assignmentDiff.isEmpty()) {
@@ -240,12 +304,89 @@ public class Main {
             }
         }
 
+        if (!gradeDiff.isEmpty()) {
+            if (!body.isEmpty()) body.append("\n");
+            body.append("=== GRADES ===\n");
+            for (Grade g : gradeDiff.getAdded()) {
+                body.append("+ NEW: ").append(g.getSubject()).append(" — ").append(g.getValue())
+                        .append("/").append(g.getOutOf());
+                if (g.getComment() != null && !g.getComment().isBlank()) {
+                    body.append(" (").append(truncate(g.getComment(), 60)).append(")");
+                }
+                body.append(" [").append(g.getPeriodName()).append("]\n");
+            }
+            for (Grade g : gradeDiff.getRemoved()) {
+                body.append("- REMOVED: ").append(g.getSubject()).append(" (").append(g.getDate()).append(")\n");
+            }
+            for (Map.Entry<Grade, List<FieldChange>> entry : gradeDiff.getModified().entrySet()) {
+                body.append("~ MODIFIED: ").append(entry.getKey().getSubject())
+                        .append(" (").append(entry.getKey().getDate()).append(")\n");
+                for (FieldChange fc : entry.getValue()) {
+                    body.append("  ").append(fc).append("\n");
+                }
+            }
+        }
+
+        if (!evaluationDiff.isEmpty()) {
+            if (!body.isEmpty()) body.append("\n");
+            body.append("=== EVALUATIONS ===\n");
+            for (CompetenceEvaluation e : evaluationDiff.getAdded()) {
+                body.append("+ NEW: ").append(e.getSubject()).append(" — \"").append(e.getName()).append("\"");
+                if (e.getDate() != null) body.append(" on ").append(e.getDate());
+                body.append(" [").append(e.getPeriodName()).append("]\n");
+            }
+            for (CompetenceEvaluation e : evaluationDiff.getRemoved()) {
+                body.append("- REMOVED: ").append(e.getSubject()).append(" \"")
+                        .append(e.getName()).append("\" (").append(e.getDate()).append(")\n");
+            }
+            for (Map.Entry<CompetenceEvaluation, List<FieldChange>> entry : evaluationDiff.getModified().entrySet()) {
+                body.append("~ MODIFIED: ").append(entry.getKey().getSubject())
+                        .append(" \"").append(entry.getKey().getName()).append("\"\n");
+                for (FieldChange fc : entry.getValue()) {
+                    body.append("  ").append(fc).append("\n");
+                }
+            }
+        }
+
+        if (!schoolLifeDiff.isEmpty()) {
+            if (!body.isEmpty()) body.append("\n");
+            body.append("=== VIE SCOLAIRE ===\n");
+            for (SchoolLifeEvent e : schoolLifeDiff.getAdded()) {
+                body.append("+ NEW: [").append(e.getType()).append("] ").append(e.getDate());
+                if (e.getMinutes() > 0) body.append(" (").append(e.getMinutes()).append(" min)");
+                if (e.getNature() != null && !e.getNature().isBlank())
+                    body.append(" — ").append(e.getNature());
+                if (e.getReasons() != null && !e.getReasons().isBlank())
+                    body.append(" — ").append(e.getReasons());
+                if (e.isJustified()) body.append(" [justified]");
+                body.append("\n");
+            }
+            for (SchoolLifeEvent e : schoolLifeDiff.getRemoved()) {
+                body.append("- REMOVED: [").append(e.getType()).append("] ").append(e.getDate()).append("\n");
+            }
+            for (Map.Entry<SchoolLifeEvent, List<FieldChange>> entry : schoolLifeDiff.getModified().entrySet()) {
+                body.append("~ MODIFIED: [").append(entry.getKey().getType())
+                        .append("] ").append(entry.getKey().getDate()).append("\n");
+                for (FieldChange fc : entry.getValue()) {
+                    body.append("  ").append(fc).append("\n");
+                }
+            }
+        }
+
         int totalChanges = assignmentDiff.getAdded().size() + assignmentDiff.getRemoved().size()
                 + assignmentDiff.getModified().size() + timetableDiff.getAdded().size()
-                + timetableDiff.getRemoved().size() + timetableDiff.getModified().size();
+                + timetableDiff.getRemoved().size() + timetableDiff.getModified().size()
+                + gradeDiff.getAdded().size() + gradeDiff.getRemoved().size()
+                + gradeDiff.getModified().size() + evaluationDiff.getAdded().size()
+                + evaluationDiff.getRemoved().size() + evaluationDiff.getModified().size()
+                + schoolLifeDiff.getAdded().size() + schoolLifeDiff.getRemoved().size()
+                + schoolLifeDiff.getModified().size();
 
-        NotificationPayload.Priority priority = timetableDiff.getAdded().isEmpty()
+        // Priority HIGH if timetable changed or new school-life event (immediate-attention items);
+        // NORMAL otherwise.
+        NotificationPayload.Priority priority = (timetableDiff.getAdded().isEmpty()
                 && timetableDiff.getRemoved().isEmpty()
+                && schoolLifeDiff.getAdded().isEmpty())
                 ? NotificationPayload.Priority.NORMAL
                 : NotificationPayload.Priority.HIGH;
 

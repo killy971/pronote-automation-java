@@ -9,6 +9,7 @@ public class AppConfig {
     private DataConfig data = new DataConfig();
     private SafetyConfig safety = new SafetyConfig();
     private NotificationsConfig notifications = new NotificationsConfig();
+    private FeaturesConfig features = new FeaturesConfig();
 
     // -------------------------------------------------------------------------
     // Getters / setters (plain, for SnakeYAML)
@@ -25,6 +26,9 @@ public class AppConfig {
 
     public NotificationsConfig getNotifications() { return notifications; }
     public void setNotifications(NotificationsConfig notifications) { this.notifications = notifications; }
+
+    public FeaturesConfig getFeatures() { return features; }
+    public void setFeatures(FeaturesConfig features) { this.features = features; }
 
     // =========================================================================
     // Nested config classes
@@ -102,6 +106,36 @@ public class AppConfig {
 
         public EmailConfig getEmail() { return email; }
         public void setEmail(EmailConfig email) { this.email = email; }
+    }
+
+    /**
+     * Feature flags — controls which data types are fetched, diffed, and notified.
+     * Disabled types are completely skipped (no HTTP request, no snapshot update).
+     * Re-enabling a type after it was disabled behaves like a first run for that type:
+     * a baseline snapshot is saved silently with no notification.
+     */
+    public static class FeaturesConfig {
+        private boolean assignments = true;
+        private boolean timetable   = true;
+        /** Grades (DernieresNotes). Disabled by default — requires academic periods in session. */
+        private boolean grades      = false;
+        private boolean evaluations = true;
+        private boolean schoolLife  = true;
+
+        public boolean isAssignments() { return assignments; }
+        public void setAssignments(boolean assignments) { this.assignments = assignments; }
+
+        public boolean isTimetable() { return timetable; }
+        public void setTimetable(boolean timetable) { this.timetable = timetable; }
+
+        public boolean isGrades() { return grades; }
+        public void setGrades(boolean grades) { this.grades = grades; }
+
+        public boolean isEvaluations() { return evaluations; }
+        public void setEvaluations(boolean evaluations) { this.evaluations = evaluations; }
+
+        public boolean isSchoolLife() { return schoolLife; }
+        public void setSchoolLife(boolean schoolLife) { this.schoolLife = schoolLife; }
     }
 
     public static class NtfyConfig {

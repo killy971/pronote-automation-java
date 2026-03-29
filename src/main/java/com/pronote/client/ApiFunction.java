@@ -8,7 +8,10 @@ public enum ApiFunction {
     FONCTION_PARAMETRES("FonctionParametres"),
     AUTHENTIFICATION("Authentification"),
     LIST_HOMEWORK("PageCahierDeTexte"),
-    PAGE_TIMETABLE("PageEmploiDuTemps");
+    PAGE_TIMETABLE("PageEmploiDuTemps"),
+    GRADES("DernieresNotes"),
+    EVALUATIONS("DernieresEvaluations"),
+    SCHOOL_LIFE("PagePresence");
 
     private final String value;
 

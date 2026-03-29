@@ -4,8 +4,10 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -53,6 +55,57 @@ public class PronoteSession {
      * Null if not yet populated (older persisted sessions will fall back to ISO week number).
      */
     private LocalDate schoolYearFirstMonday;
+
+    /**
+     * Academic periods (trimesters/semesters) parsed from FonctionParametres → General.ListePeriodes.
+     * Required by the grades (DernieresNotes) and evaluations (DernieresEvaluations) API calls.
+     * Empty when using an older persisted session that predates this field.
+     */
+    private List<Period> periods = new ArrayList<>();
+
+    // -------------------------------------------------------------------------
+    // Period inner class
+    // -------------------------------------------------------------------------
+
+    /**
+     * An academic period (trimester or semester) as returned by Pronote's
+     * FonctionParametres → General.ListePeriodes.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Period {
+        private String id;        // N field
+        private String name;      // L field (e.g. "Trimestre 1", "Semestre 2")
+        private int type;         // G field (1=trimester, 2=semester, etc.)
+        private LocalDate startDate; // dateDebut.V — used by PagePresence (vie scolaire)
+        private LocalDate endDate;   // dateFin.V   — used by PagePresence (vie scolaire)
+
+        public Period() {}
+
+        public Period(String id, String name, int type) {
+            this.id = id;
+            this.name = name;
+            this.type = type;
+        }
+
+        public String getId()   { return id; }
+        public void setId(String id) { this.id = id; }
+
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+
+        public int getType()    { return type; }
+        public void setType(int type) { this.type = type; }
+
+        public LocalDate getStartDate() { return startDate; }
+        public void setStartDate(LocalDate startDate) { this.startDate = startDate; }
+
+        public LocalDate getEndDate() { return endDate; }
+        public void setEndDate(LocalDate endDate) { this.endDate = endDate; }
+
+        @Override
+        public String toString() { return "Period{id='" + id + "', name='" + name + "', type=" + type
+                + ", start=" + startDate + ", end=" + endDate + '}'; }
+    }
 
     public PronoteSession() {}
 
@@ -106,4 +159,7 @@ public class PronoteSession {
 
     public LocalDate getSchoolYearFirstMonday() { return schoolYearFirstMonday; }
     public void setSchoolYearFirstMonday(LocalDate schoolYearFirstMonday) { this.schoolYearFirstMonday = schoolYearFirstMonday; }
+
+    public List<Period> getPeriods() { return periods; }
+    public void setPeriods(List<Period> periods) { this.periods = periods != null ? periods : new ArrayList<>(); }
 }

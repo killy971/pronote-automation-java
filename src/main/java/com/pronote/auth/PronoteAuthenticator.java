@@ -13,8 +13,10 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -103,12 +105,15 @@ public class PronoteAuthenticator {
         JsonNode fonctionResponse = post(session, "FonctionParametres", fonctionParams);
         log.debug("FonctionParametres complete");
 
-        // Parse school-year first Monday from General.PremierLundi — used to compute NumeroSemaine
-        // for timetable API calls (Pronote expects school-year week number, not ISO week number).
+        // Parse General parameters from FonctionParametres:
+        //   - PremierLundi → school-year first Monday (used for NumeroSemaine in timetable calls)
+        //   - ListePeriodes → academic periods (used for DernieresNotes / DernieresEvaluations calls)
         try {
             JsonNode generalParams = navigateToData(fonctionResponse, "FonctionParametres");
             if (generalParams != null && generalParams.has("General")) {
                 JsonNode general = generalParams.get("General");
+
+                // PremierLundi
                 JsonNode premierLundi = general.get("PremierLundi");
                 if (premierLundi != null) {
                     String dateStr = premierLundi.has("V") ? premierLundi.get("V").asText("") : premierLundi.asText("");
@@ -120,9 +125,59 @@ public class PronoteAuthenticator {
                         log.info("School-year first Monday: {}", firstMonday);
                     }
                 }
+
+                // ListePeriodes — needed for grades and competence evaluations
+                JsonNode listePeriodes = general.get("ListePeriodes");
+                if (listePeriodes != null) {
+                    JsonNode periodesArray = listePeriodes.has("V") ? listePeriodes.get("V") : listePeriodes;
+                    if (periodesArray != null && periodesArray.isArray()) {
+                        List<PronoteSession.Period> periods = new ArrayList<>();
+                        for (JsonNode p : periodesArray) {
+                            String pId   = p.has("N") ? p.get("N").asText(null) : null;
+                            String pName = p.has("L") ? p.get("L").asText("") : "";
+                            int    pType = p.has("G") ? p.get("G").asInt(1)    : 1;
+                            if (pId != null && !pId.isBlank()) {
+                                PronoteSession.Period period = new PronoteSession.Period(pId, pName, pType);
+                                // Extract period date range — needed for PagePresence (vie scolaire) calls
+                                JsonNode dateDebut = p.get("dateDebut");
+                                if (dateDebut != null) {
+                                    String ds = dateDebut.has("V") ? dateDebut.get("V").asText("") : dateDebut.asText("");
+                                    if (!ds.isBlank()) {
+                                        try {
+                                            period.setStartDate(LocalDate.parse(
+                                                    ds.trim().split(" ")[0],
+                                                    DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+                                        } catch (DateTimeParseException e2) {
+                                            log.debug("Could not parse period startDate '{}': {}", ds, e2.getMessage());
+                                        }
+                                    }
+                                }
+                                JsonNode dateFin = p.get("dateFin");
+                                if (dateFin != null) {
+                                    String ds = dateFin.has("V") ? dateFin.get("V").asText("") : dateFin.asText("");
+                                    if (!ds.isBlank()) {
+                                        try {
+                                            period.setEndDate(LocalDate.parse(
+                                                    ds.trim().split(" ")[0],
+                                                    DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+                                        } catch (DateTimeParseException e2) {
+                                            log.debug("Could not parse period endDate '{}': {}", ds, e2.getMessage());
+                                        }
+                                    }
+                                }
+                                periods.add(period);
+                            }
+                        }
+                        session.setPeriods(periods);
+                        log.info("Parsed {} academic period(s): {}",
+                                periods.size(),
+                                periods.stream().map(PronoteSession.Period::getName)
+                                       .reduce((x, y) -> x + ", " + y).orElse("(none)"));
+                    }
+                }
             }
         } catch (RuntimeException e) {
-            log.warn("Could not parse PremierLundi from FonctionParametres: {}", e.getMessage());
+            log.warn("Could not parse General params from FonctionParametres: {}", e.getMessage());
         }
 
         // After FonctionParametres: update IV to MD5(ivTemp)

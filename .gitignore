@@ -38,5 +38,8 @@ build/
 config.yaml
 data/
 
+# Vendored reference libraries (local analysis aid, not part of the build)
+vendor/
+
 # Keep the example config
 !config.yaml.example
