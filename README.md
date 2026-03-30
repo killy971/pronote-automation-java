@@ -82,6 +82,16 @@ See [Configuration](#configuration) for all options.
 java -jar pronote-automation-1.0.0.jar --config config.yaml
 ```
 
+To run only specific data sets, use `--features` (comma-separated, no spaces):
+
+```bash
+java -jar pronote-automation-1.0.0.jar --config config.yaml \
+  --features assignments,timetable,grades,evaluations
+
+# Valid feature names: assignments, timetable, grades, evaluations, schoolLife
+# When omitted, the features.* flags in config.yaml determine what is fetched.
+```
+
 Expected output on first run:
 ```
 INFO  ConfigLoader      - Loading configuration from config.yaml
@@ -172,27 +182,56 @@ java -jar pronote-automation-1.0.0.jar --config config.yaml
 
 ## Scheduling
 
-### systemd timer (recommended)
+### systemd timers (recommended)
+
+Two timer units cover the two common schedules:
+
+| Timer | Features | Cadence |
+|---|---|---|
+| `pronote-frequent.timer` | assignments, timetable, grades, evaluations | Every 15 min, all day |
+| `pronote-school.timer` | schoolLife | Every 30 min, Mon–Fri 08:00–18:00 |
 
 ```bash
 sudo bash deploy/install.sh
-sudo systemctl start pronote.timer
-sudo systemctl enable pronote.timer   # persist across reboots
+sudo systemctl start pronote-frequent.timer pronote-school.timer
+sudo systemctl enable pronote-frequent.timer pronote-school.timer
 
-# Check next trigger:
-systemctl list-timers pronote.timer
+# Check next triggers:
+systemctl list-timers 'pronote-*'
 
 # View logs:
-journalctl -u pronote.service -f
+journalctl -u pronote-frequent.service -f
+journalctl -u pronote-school.service -f
 ```
 
-The timer runs every 15 minutes with up to 60 seconds of random jitter.
+Each service unit passes a different `--features` flag to the same JAR:
+
+```ini
+# pronote-frequent.service
+ExecStart=/path/to/java -Xmx128m -jar /opt/pronote/pronote-automation.jar \
+    --config /opt/pronote/config.yaml \
+    --features assignments,timetable,grades,evaluations
+
+# pronote-school.service
+ExecStart=/path/to/java -Xmx128m -jar /opt/pronote/pronote-automation.jar \
+    --config /opt/pronote/config.yaml \
+    --features schoolLife
+```
 
 ### cron (alternative)
 
 ```cron
-*/15 * * * * /usr/bin/java -jar /opt/pronote/pronote-automation.jar \
-  --config /opt/pronote/config.yaml >> /opt/pronote/data/logs/cron.log 2>&1
+# Frequent — all day
+*/15 * * * * /path/to/java -jar /opt/pronote/pronote-automation.jar \
+  --config /opt/pronote/config.yaml \
+  --features assignments,timetable,grades,evaluations \
+  >> /opt/pronote/data/logs/cron.log 2>&1
+
+# School hours — Mon–Fri 08:00–18:00
+*/30 8-18 * * 1-5 /path/to/java -jar /opt/pronote/pronote-automation.jar \
+  --config /opt/pronote/config.yaml \
+  --features schoolLife \
+  >> /opt/pronote/data/logs/cron.log 2>&1
 ```
 
 ---

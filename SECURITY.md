@@ -103,7 +103,7 @@ Do not schedule the job more frequently than every **10 minutes**. The default 1
 
 Do not run multiple instances of the application simultaneously. The systemd `Type=oneshot` configuration ensures this on Raspberry Pi. If running via cron, add a lock:
 ```bash
-flock -n /tmp/pronote.lock java -jar pronote-automation.jar --config config.yaml
+flock -n /tmp/pronote.lock java -jar pronote-automation.jar --config config.yaml --features assignments,timetable,grades,evaluations
 ```
 
 ### What the application logs

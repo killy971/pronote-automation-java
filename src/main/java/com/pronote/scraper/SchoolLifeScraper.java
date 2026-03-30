@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.pronote.auth.PronoteSession;
 import com.pronote.client.ApiFunction;
 import com.pronote.client.PronoteHttpClient;
+import com.pronote.config.SubjectEnricher;
 import com.pronote.domain.SchoolLifeEvent;
 import com.pronote.domain.SchoolLifeEvent.EventType;
 import org.slf4j.Logger;
@@ -58,6 +59,11 @@ public class SchoolLifeScraper {
             DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
 
     private final ObjectMapper jackson = new ObjectMapper();
+    private final SubjectEnricher subjectEnricher;
+
+    public SchoolLifeScraper(SubjectEnricher subjectEnricher) {
+        this.subjectEnricher = subjectEnricher;
+    }
 
     /**
      * Fetches all vie scolaire events for every available academic period.
@@ -324,6 +330,7 @@ public class SchoolLifeScraper {
             event.setId("OTHER@" + datePart + "@G" + g);
         }
 
+        event.setEnrichedSubject(subjectEnricher.enrich(event.getSubject(), null));
         return event;
     }
 

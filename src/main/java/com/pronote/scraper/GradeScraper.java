@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.pronote.auth.PronoteSession;
 import com.pronote.client.ApiFunction;
 import com.pronote.client.PronoteHttpClient;
+import com.pronote.config.SubjectEnricher;
 import com.pronote.domain.Grade;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +50,11 @@ public class GradeScraper {
             DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final ObjectMapper jackson = new ObjectMapper();
+    private final SubjectEnricher subjectEnricher;
+
+    public GradeScraper(SubjectEnricher subjectEnricher) {
+        this.subjectEnricher = subjectEnricher;
+    }
 
     /**
      * Fetches all grades for every available academic period.
@@ -185,6 +191,7 @@ public class GradeScraper {
         // grade corrections are detected as modifications, not as new entries.
         String datePart = g.getDate() != null ? g.getDate().toString() : "unknown";
         g.setId(g.getSubject() + "@" + datePart + "@" + g.getOutOf() + "@" + g.getCoefficient());
+        g.setEnrichedSubject(subjectEnricher.enrich(g.getSubject(), null));
 
         return g;
     }

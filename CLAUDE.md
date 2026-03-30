@@ -10,7 +10,14 @@
 4. Sends push (ntfy) and/or email notifications when changes are detected
 5. Persists snapshots to disk for the next comparison
 
-Target runtime: **Raspberry Pi (Raspbian)**, triggered every 15–20 min via systemd timer.
+Target runtime: **Raspberry Pi (Raspbian)**, triggered by two systemd timers — one frequent (every 15 min, all day) and one school-hours only.
+
+**CLI arguments:**
+
+| Argument | Required | Description |
+|---|---|---|
+| `--config <path>` | No (default: `config.yaml`) | Path to the YAML configuration file |
+| `--features <list>` | No (default: config `features.*` flags) | Comma-separated subset of features to run: `assignments`, `timetable`, `grades`, `evaluations`, `schoolLife`. Overrides all `features.*` flags in config for this invocation. Unknown names fail fast. |
 
 ---
 

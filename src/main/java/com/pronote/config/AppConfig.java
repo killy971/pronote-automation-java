@@ -10,6 +10,7 @@ public class AppConfig {
     private SafetyConfig safety = new SafetyConfig();
     private NotificationsConfig notifications = new NotificationsConfig();
     private FeaturesConfig features = new FeaturesConfig();
+    private SubjectEnrichmentConfig subjectEnrichment = new SubjectEnrichmentConfig();
 
     // -------------------------------------------------------------------------
     // Getters / setters (plain, for SnakeYAML)
@@ -29,6 +30,9 @@ public class AppConfig {
 
     public FeaturesConfig getFeatures() { return features; }
     public void setFeatures(FeaturesConfig features) { this.features = features; }
+
+    public SubjectEnrichmentConfig getSubjectEnrichment() { return subjectEnrichment; }
+    public void setSubjectEnrichment(SubjectEnrichmentConfig subjectEnrichment) { this.subjectEnrichment = subjectEnrichment; }
 
     // =========================================================================
     // Nested config classes
@@ -186,5 +190,54 @@ public class AppConfig {
 
         public String getTo() { return to; }
         public void setTo(String to) { this.to = to; }
+    }
+
+    /**
+     * Top-level container for subject enrichment rules.
+     *
+     * <p>YAML example:
+     * <pre>
+     * subjectEnrichment:
+     *   rules:
+     *     - subject: "HISTOIRE-GEOGRAPHIE"
+     *       teacher: "BUKOWIECKI J."
+     *       enrichedSubject: "Histoire"
+     *     - subject: "HISTOIRE-GEOGRAPHIE"
+     *       teacher: "LATZKE W."
+     *       enrichedSubject: "Géographie"
+     *     - subject: "MATHEMATIQUES"
+     *       enrichedSubject: "Maths"
+     * </pre>
+     *
+     * Rules with both {@code subject} and {@code teacher} are matched first (most specific).
+     * Rules with only {@code subject} act as a fallback for any teacher.
+     * When no rule matches, {@code enrichedSubject} equals the original subject.
+     */
+    public static class SubjectEnrichmentConfig {
+        private java.util.List<SubjectEnrichmentRule> rules = new java.util.ArrayList<>();
+
+        public java.util.List<SubjectEnrichmentRule> getRules() { return rules; }
+        public void setRules(java.util.List<SubjectEnrichmentRule> rules) {
+            this.rules = rules != null ? rules : new java.util.ArrayList<>();
+        }
+    }
+
+    /** A single subject-enrichment mapping rule. {@code teacher} is optional. */
+    public static class SubjectEnrichmentRule {
+        /** Pronote subject string to match (exact, case-sensitive). */
+        private String subject;
+        /** Pronote teacher string to match (exact, case-sensitive). Null means "any teacher". */
+        private String teacher;
+        /** The enriched display name to use when this rule matches. */
+        private String enrichedSubject;
+
+        public String getSubject() { return subject; }
+        public void setSubject(String subject) { this.subject = subject; }
+
+        public String getTeacher() { return teacher; }
+        public void setTeacher(String teacher) { this.teacher = teacher; }
+
+        public String getEnrichedSubject() { return enrichedSubject; }
+        public void setEnrichedSubject(String enrichedSubject) { this.enrichedSubject = enrichedSubject; }
     }
 }

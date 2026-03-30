@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.pronote.auth.PronoteSession;
 import com.pronote.client.ApiFunction;
 import com.pronote.client.PronoteHttpClient;
+import com.pronote.config.SubjectEnricher;
 import com.pronote.domain.CompetenceAcquisition;
 import com.pronote.domain.CompetenceEvaluation;
 import org.slf4j.Logger;
@@ -49,6 +50,11 @@ public class EvaluationScraper {
             DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final ObjectMapper jackson = new ObjectMapper();
+    private final SubjectEnricher subjectEnricher;
+
+    public EvaluationScraper(SubjectEnricher subjectEnricher) {
+        this.subjectEnricher = subjectEnricher;
+    }
 
     /**
      * Fetches all competence evaluations for every available academic period.
@@ -177,6 +183,7 @@ public class EvaluationScraper {
         // a competence evaluation across sessions.
         String datePart = e.getDate() != null ? e.getDate().toString() : "unknown";
         e.setId(e.getSubject() + "@" + datePart + "@" + e.getName());
+        e.setEnrichedSubject(subjectEnricher.enrich(e.getSubject(), e.getTeacher()));
 
         // acquisitions: listeNiveauxDAcquisitions.V
         List<CompetenceAcquisition> acquisitions = new ArrayList<>();

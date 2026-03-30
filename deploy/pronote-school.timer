@@ -1,0 +1,14 @@
+[Unit]
+Description=Run Pronote school-hours sync every 30 minutes on weekdays
+Requires=pronote-school.service
+
+[Timer]
+# Run every 30 minutes, Mon–Fri, between 08:00 and 17:30
+OnCalendar=Mon..Fri *-*-* 08..17:30/30
+RandomizedDelaySec=60
+# Do not catch up after reboots — school-life events outside school hours are not actionable
+Persistent=false
+Unit=pronote-school.service
+
+[Install]
+WantedBy=timers.target

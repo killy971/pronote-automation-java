@@ -20,6 +20,10 @@ public class Assignment implements Identifiable {
 
     private String id;
     private String subject;
+    /** Enriched display name derived from {@code subject} via {@code subjectEnrichment} config
+     *  rules. Assignments carry no teacher, so only subject-only rules apply.
+     *  Equals {@code subject} when no rule matches. */
+    private String enrichedSubject;
     private String description;
     private LocalDate dueDate;
     private LocalDate assignedDate;
@@ -39,6 +43,9 @@ public class Assignment implements Identifiable {
 
     public String getSubject() { return subject; }
     public void setSubject(String subject) { this.subject = subject; }
+
+    public String getEnrichedSubject() { return enrichedSubject; }
+    public void setEnrichedSubject(String enrichedSubject) { this.enrichedSubject = enrichedSubject; }
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }

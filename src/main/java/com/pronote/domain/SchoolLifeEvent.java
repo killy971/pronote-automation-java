@@ -64,6 +64,7 @@ public class SchoolLifeEvent implements Identifiable {
     private String giver;          // demandeur.V.L (issuing teacher — punishments and observations)
     private String label;          // L field (observation category, e.g. "Travail non fait")
     private String subject;        // matiere.V.L (subject — observations only)
+    private String enrichedSubject;
     private String reasons;        // listeMotifs joined; or actesMedicaux for infirmary
     private String circumstances;  // circonstances; or symptomesMedicaux for infirmary
 
@@ -102,6 +103,9 @@ public class SchoolLifeEvent implements Identifiable {
 
     public String getSubject() { return subject; }
     public void setSubject(String subject) { this.subject = subject; }
+
+    public String getEnrichedSubject() { return enrichedSubject; }
+    public void setEnrichedSubject(String enrichedSubject) { this.enrichedSubject = enrichedSubject; }
 
     public String getReasons() { return reasons; }
     public void setReasons(String reasons) { this.reasons = reasons; }

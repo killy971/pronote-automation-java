@@ -1,0 +1,25 @@
+[Unit]
+Description=Pronote Automation — frequent sync (assignments, timetable, grades, evaluations)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pronote
+WorkingDirectory=/opt/pronote
+ExecStart=/usr/bin/java \
+    -Xmx128m \
+    -Xms32m \
+    -DLOG_LEVEL=INFO \
+    -jar /opt/pronote/pronote-automation.jar \
+    --config /opt/pronote/config.yaml \
+    --features assignments,timetable,grades,evaluations
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pronote-frequent
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/pronote/data

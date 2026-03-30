@@ -7,6 +7,7 @@ import com.pronote.auth.PronoteSession;
 import com.pronote.client.ApiFunction;
 import com.pronote.client.PronoteHttpClient;
 import com.pronote.config.AppConfig;
+import com.pronote.config.SubjectEnricher;
 import com.pronote.domain.EntryStatus;
 import com.pronote.domain.TimetableEntry;
 import org.slf4j.Logger;
@@ -53,6 +54,11 @@ public class TimetableScraper {
             DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
 
     private final ObjectMapper jackson = new ObjectMapper();
+    private final SubjectEnricher subjectEnricher;
+
+    public TimetableScraper(SubjectEnricher subjectEnricher) {
+        this.subjectEnricher = subjectEnricher;
+    }
 
     /**
      * Fetches timetable entries for the configured week range.
@@ -236,13 +242,26 @@ public class TimetableScraper {
             e.setStatusLabel(statut);
         }
 
-        e.setTest(getBoolean(data, "estDevoir", false));
+        // estDevoir is nested inside cahierDeTextes.V, not at the top level.
+        // (pronotepy: self._resolver(bool, "cahierDeTextes", "V", "estDevoir", default=False))
+        JsonNode cahierDeTextes = data.get("cahierDeTextes");
+        if (cahierDeTextes != null && cahierDeTextes.has("V")) {
+            e.setTest(getBoolean(cahierDeTextes.get("V"), "estDevoir", false));
+        }
+
+        // memo: free-text teacher annotation (e.g. "Évaluation de compétences")
+        String memo = getString(data, "memo", null);
+        if (memo != null && !memo.isBlank()) {
+            e.setMemo(memo);
+        }
 
         // Stable content-based ID: subject@startTime:status
         // Status is included so that a cancellation + replacement pair for the same slot
         // (which Pronote emits as two entries) produce distinct IDs rather than colliding.
         String startKey = e.getStartTime() != null ? e.getStartTime().toString() : "unknown";
         e.setId(e.getSubject() + "@" + startKey + ":" + e.getStatus().name());
+
+        e.setEnrichedSubject(subjectEnricher.enrich(e.getSubject(), e.getTeacher()));
 
         return e;
     }

@@ -47,19 +47,26 @@ notifications:
 
 ### 4. Test before scheduling
 
-Run once as the `pronote` user:
+Run once as the `pronote` user (fetches all enabled features from config):
 ```bash
 sudo -u pronote java -Xmx128m -jar /opt/pronote/pronote-automation.jar \
   --config /opt/pronote/config.yaml
 ```
 
+Or test a specific feature set using `--features`:
+```bash
+sudo -u pronote java -Xmx128m -jar /opt/pronote/pronote-automation.jar \
+  --config /opt/pronote/config.yaml \
+  --features assignments,timetable,grades,evaluations
+```
+
 Expect: successful login, data fetched, snapshots written.
 
-### 5. Start the timer
+### 5. Start the timers
 
 ```bash
-sudo systemctl start pronote.timer
-sudo systemctl status pronote.timer
+sudo systemctl start pronote-frequent.timer pronote-school.timer
+sudo systemctl status pronote-frequent.timer pronote-school.timer
 ```
 
 ---
@@ -166,7 +173,8 @@ cat /opt/pronote/data/lockout.json
 4. Run once manually to confirm login works:
    ```bash
    sudo -u pronote java -Xmx128m -jar /opt/pronote/pronote-automation.jar \
-     --config /opt/pronote/config.yaml
+     --config /opt/pronote/config.yaml \
+     --features assignments,timetable,grades,evaluations,schoolLife
    ```
 5. If it succeeds, the timer will auto-resume. No further action needed.
 
@@ -177,9 +185,9 @@ cat /opt/pronote/data/lockout.json
 **This is a safety feature, not a bug.** Do not bypass it.
 
 **Steps:**
-1. Stop the timer to prevent further (failed) attempts:
+1. Stop the timers to prevent further (failed) attempts:
    ```bash
-   sudo systemctl stop pronote.timer
+   sudo systemctl stop pronote-frequent.timer pronote-school.timer
    ```
 2. Verify credentials manually (browser login).
 3. Reset the lockout counter **only after fixing the underlying issue**:
@@ -190,11 +198,12 @@ cat /opt/pronote/data/lockout.json
 4. Run once manually to confirm:
    ```bash
    sudo -u pronote java -Xmx128m -jar /opt/pronote/pronote-automation.jar \
-     --config /opt/pronote/config.yaml
+     --config /opt/pronote/config.yaml \
+     --features assignments,timetable,grades,evaluations,schoolLife
    ```
-5. Restart the timer:
+5. Restart the timers:
    ```bash
-   sudo systemctl start pronote.timer
+   sudo systemctl start pronote-frequent.timer pronote-school.timer
    ```
 
 **If the account appears to be genuinely locked on the Pronote side:**

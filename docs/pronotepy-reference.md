@@ -396,7 +396,8 @@ Params: `{ "listeTAF": [{ "N": "<homeworkId>", "TAFFait": true/false }] }`.
 | `Statut` | Status string (e.g. `"Cours annulé"`) |
 | `P` | Sort number |
 | `estRetenue` | Detention |
-| `memo` | Memo text |
+| `memo` | Free-text memo set by teacher (e.g. `"Évaluation de compétences"`) |
+| `cahierDeTextes.V.estDevoir` | True if there is a test/homework for this lesson (**nested** — do NOT read top-level `estDevoir`) |
 | `CouleurFond` | Background color hex |
 | `estSortiePedagogique` | Pedagogical outing |
 | `dispenseEleve` | Student exempted |

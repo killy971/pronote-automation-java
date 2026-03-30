@@ -33,6 +33,7 @@ public class Grade implements Identifiable {
 
     private String id;          // stable: subject@date@outOf@coefficient
     private String subject;
+    private String enrichedSubject;
     private String value;       // raw grade string (e.g. "15,5", "ABS", "/")
     private double outOf;       // bareme – maximum possible grade
     private double coefficient;
@@ -48,6 +49,9 @@ public class Grade implements Identifiable {
 
     public String getSubject() { return subject; }
     public void setSubject(String subject) { this.subject = subject; }
+
+    public String getEnrichedSubject() { return enrichedSubject; }
+    public void setEnrichedSubject(String enrichedSubject) { this.enrichedSubject = enrichedSubject; }
 
     public String getValue() { return value; }
     public void setValue(String value) { this.value = value; }

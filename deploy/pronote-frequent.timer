@@ -1,0 +1,14 @@
+[Unit]
+Description=Run Pronote frequent sync every 15 minutes
+Requires=pronote-frequent.service
+
+[Timer]
+# Run every 15 minutes with up to 60 seconds of random jitter
+OnCalendar=*:0/15
+RandomizedDelaySec=60
+# Catch up if the system was off
+Persistent=true
+Unit=pronote-frequent.service
+
+[Install]
+WantedBy=timers.target

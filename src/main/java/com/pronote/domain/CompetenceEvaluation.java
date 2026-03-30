@@ -32,6 +32,7 @@ public class CompetenceEvaluation implements Identifiable {
     private String id;          // stable: subject@date@name
     private String name;        // evaluation title
     private String subject;
+    private String enrichedSubject;
     private LocalDate date;
     private String teacher;
     private String description;
@@ -49,6 +50,9 @@ public class CompetenceEvaluation implements Identifiable {
 
     public String getSubject() { return subject; }
     public void setSubject(String subject) { this.subject = subject; }
+
+    public String getEnrichedSubject() { return enrichedSubject; }
+    public void setEnrichedSubject(String enrichedSubject) { this.enrichedSubject = enrichedSubject; }
 
     public LocalDate getDate() { return date; }
     public void setDate(LocalDate date) { this.date = date; }

@@ -8,6 +8,7 @@ import com.pronote.auth.PronoteSession;
 import com.pronote.client.ApiFunction;
 import com.pronote.client.PronoteHttpClient;
 import com.pronote.config.AppConfig;
+import com.pronote.config.SubjectEnricher;
 import com.pronote.domain.Assignment;
 import com.pronote.domain.AttachmentRef;
 import org.slf4j.Logger;
@@ -55,6 +56,11 @@ public class AssignmentScraper {
             DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final ObjectMapper jackson = new ObjectMapper();
+    private final SubjectEnricher subjectEnricher;
+
+    public AssignmentScraper(SubjectEnricher subjectEnricher) {
+        this.subjectEnricher = subjectEnricher;
+    }
 
     /**
      * Fetches all assignments for the configured date range.
@@ -161,6 +167,9 @@ public class AssignmentScraper {
         String duePart      = a.getDueDate()      != null ? a.getDueDate().toString()      : "unknown";
         String assignedPart = a.getAssignedDate() != null ? a.getAssignedDate().toString() : "unknown";
         a.setId((a.getSubject() != null ? a.getSubject() : "") + "@" + duePart + "@" + assignedPart);
+
+        // Assignments carry no teacher — enrichment uses subject-only rules.
+        a.setEnrichedSubject(subjectEnricher.enrich(a.getSubject(), null));
 
         // description: descriptif.V (rich-text object; fall back to plain string)
         JsonNode descriptif = data.get("descriptif");

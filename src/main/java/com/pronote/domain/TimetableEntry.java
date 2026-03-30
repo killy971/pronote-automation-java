@@ -18,6 +18,9 @@ public class TimetableEntry implements Identifiable {
 
     private String id;
     private String subject;
+    /** Enriched display name derived from {@code subject} (and optionally {@code teacher}) via
+     *  {@code subjectEnrichment} config rules. Equals {@code subject} when no rule matches. */
+    private String enrichedSubject;
     private String teacher;
     private String room;
     private LocalDateTime startTime;
@@ -27,7 +30,9 @@ public class TimetableEntry implements Identifiable {
      *  "Exceptionnel", "Cours maintenu", "Cours modifié". Null when Pronote provides no label. */
     private String statusLabel;
     private boolean isTest;
-
+    /** Free-text memo attached to the lesson by the teacher.
+     *  Comes from the {@code memo} field in the Pronote timetable response. Null when absent. */
+    private String memo;
     public TimetableEntry() {}
 
     @Override
@@ -36,6 +41,9 @@ public class TimetableEntry implements Identifiable {
 
     public String getSubject() { return subject; }
     public void setSubject(String subject) { this.subject = subject; }
+
+    public String getEnrichedSubject() { return enrichedSubject; }
+    public void setEnrichedSubject(String enrichedSubject) { this.enrichedSubject = enrichedSubject; }
 
     public String getTeacher() { return teacher; }
     public void setTeacher(String teacher) { this.teacher = teacher; }
@@ -57,6 +65,9 @@ public class TimetableEntry implements Identifiable {
 
     public boolean isTest() { return isTest; }
     public void setTest(boolean test) { isTest = test; }
+
+    public String getMemo() { return memo; }
+    public void setMemo(String memo) { this.memo = memo; }
 
     @Override
     public boolean equals(Object o) {

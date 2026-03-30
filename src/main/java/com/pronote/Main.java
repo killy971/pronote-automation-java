@@ -7,6 +7,7 @@ import com.pronote.auth.SessionStore;
 import com.pronote.client.PronoteHttpClient;
 import com.pronote.config.AppConfig;
 import com.pronote.config.ConfigLoader;
+import com.pronote.config.SubjectEnricher;
 import com.pronote.domain.Assignment;
 import com.pronote.domain.CompetenceEvaluation;
 import com.pronote.domain.Grade;
@@ -37,9 +38,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Entry point. Runs the full Pronote data pipeline:
@@ -76,6 +79,7 @@ public class Main {
         // ---- 1. Load configuration ----------------------------------------
         Path configPath = resolveConfigPath(args);
         AppConfig config = ConfigLoader.load(configPath);
+        resolveFeatureOverride(args).ifPresent(enabled -> applyFeatureOverride(config.getFeatures(), enabled));
         Path dataDir = Path.of(config.getData().getDirectory());
 
         // ---- 2. Check lockout ---------------------------------------------
@@ -91,19 +95,20 @@ public class Main {
         PronoteSession session = acquireSession(config, httpClient, sessionStore, lockoutGuard);
 
         AppConfig.FeaturesConfig features = config.getFeatures();
+        SubjectEnricher subjectEnricher = new SubjectEnricher(config.getSubjectEnrichment());
 
         // ---- 4. Fetch data (only for enabled types) -----------------------
         log.info("Fetching assignments...");
-        AssignmentScraper assignmentScraper = new AssignmentScraper();
+        AssignmentScraper assignmentScraper = new AssignmentScraper(subjectEnricher);
         List<Assignment> assignments = features.isAssignments()
                 ? assignmentScraper.fetch(session, httpClient, config) : List.of();
 
         log.info("Fetching timetable...");
-        TimetableScraper timetableScraper = new TimetableScraper();
+        TimetableScraper timetableScraper = new TimetableScraper(subjectEnricher);
         List<TimetableEntry> timetable = features.isTimetable()
                 ? timetableScraper.fetch(session, httpClient, config) : List.of();
 
-        GradeScraper gradeScraper = new GradeScraper();
+        GradeScraper gradeScraper = new GradeScraper(subjectEnricher);
         List<Grade> grades = List.of();
         if (features.isGrades()) {
             log.info("Fetching grades...");
@@ -112,7 +117,7 @@ public class Main {
             log.debug("Grades feature disabled — skipping.");
         }
 
-        EvaluationScraper evaluationScraper = new EvaluationScraper();
+        EvaluationScraper evaluationScraper = new EvaluationScraper(subjectEnricher);
         List<CompetenceEvaluation> evaluations = List.of();
         if (features.isEvaluations()) {
             log.info("Fetching competence evaluations...");
@@ -121,7 +126,7 @@ public class Main {
             log.debug("Evaluations feature disabled — skipping.");
         }
 
-        SchoolLifeScraper schoolLifeScraper = new SchoolLifeScraper();
+        SchoolLifeScraper schoolLifeScraper = new SchoolLifeScraper(subjectEnricher);
         List<SchoolLifeEvent> schoolLife = List.of();
         if (features.isSchoolLife()) {
             log.info("Fetching vie scolaire events...");
@@ -423,6 +428,33 @@ public class Main {
             if ("--config".equals(args[i])) return Path.of(args[i + 1]);
         }
         return Path.of("config.yaml");
+    }
+
+    private static final Set<String> KNOWN_FEATURES =
+            Set.of("assignments", "timetable", "grades", "evaluations", "schoolLife");
+
+    private static Optional<Set<String>> resolveFeatureOverride(String[] args) {
+        for (int i = 0; i < args.length - 1; i++) {
+            if ("--features".equals(args[i])) {
+                return Optional.of(new HashSet<>(List.of(args[i + 1].split(","))));
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static void applyFeatureOverride(AppConfig.FeaturesConfig features, Set<String> enabled) {
+        Set<String> unknown = new HashSet<>(enabled);
+        unknown.removeAll(KNOWN_FEATURES);
+        if (!unknown.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Unknown --features values: " + unknown + ". Valid: " + KNOWN_FEATURES);
+        }
+        features.setAssignments(enabled.contains("assignments"));
+        features.setTimetable(enabled.contains("timetable"));
+        features.setGrades(enabled.contains("grades"));
+        features.setEvaluations(enabled.contains("evaluations"));
+        features.setSchoolLife(enabled.contains("schoolLife"));
+        log.info("Feature override applied via --features flag: {}", enabled);
     }
 
     private static String truncate(String s, int maxLen) {
