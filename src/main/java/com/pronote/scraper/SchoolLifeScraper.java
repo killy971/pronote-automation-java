@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -25,15 +26,17 @@ import java.util.StringJoiner;
  * <p>One request is made per academic period. All event types are returned by the same
  * endpoint and distinguished by the {@code G} discriminator in the response:
  * <pre>
- *   G=13 → ABSENCE
- *   G=14 → DELAY  (retard)
- *   G=41 → PUNISHMENT (punition, retenue, exclusion)
+ *   G=13 → ABSENCE      (absence)
+ *   G=14 → DELAY        (retard)
+ *   G=21 → INFIRMARY    (passage infirmerie — actesMedicaux + symptomesMedicaux)
+ *   G=41 → PUNISHMENT   (punition, retenue, exclusion)
+ *   G=46 → OBSERVATION  (observation, travail non fait, oubli de matériel — with teacher + subject)
  *   other → OTHER
  * </pre>
  *
- * <p>Captured data covers exactly what parents look for in the "cahier de correspondance"
- * section: tardiness, absences, punishments, and associated reasons such as
- * "Oubli de matériel" or "Travail non rendu" from the {@code listeMotifs} field.
+ * <p>Captured data covers what parents see in the "vie scolaire" section:
+ * absences, tardiness, punishments, infirmary visits, and teacher observations
+ * (e.g., "Travail non fait", "Oubli de matériel").
  *
  * <p>Stable IDs:
  * <ul>
@@ -72,8 +75,21 @@ public class SchoolLifeScraper {
             return Collections.emptyList();
         }
 
+        // Prefer the whole-year period to avoid redundant requests and overlapping data.
+        // Fall back to all periods if no year-spanning period is found.
+        List<PronoteSession.Period> targetPeriods = periods.stream()
+                .filter(p -> p.getName() != null && p.getName().toLowerCase().contains("année"))
+                .collect(java.util.stream.Collectors.toList());
+        if (targetPeriods.isEmpty()) {
+            log.debug("No whole-year period found — using all {} period(s)", periods.size());
+            targetPeriods = periods;
+        } else {
+            log.info("Using whole-year period '{}' for vie scolaire (skipping {} other period(s))",
+                    targetPeriods.get(0).getName(), periods.size() - targetPeriods.size());
+        }
+
         List<SchoolLifeEvent> all = new ArrayList<>();
-        for (PronoteSession.Period period : periods) {
+        for (PronoteSession.Period period : targetPeriods) {
             log.info("Fetching vie scolaire events for period: {}", period.getName());
 
             ObjectNode params = jackson.createObjectNode();
@@ -105,7 +121,7 @@ public class SchoolLifeScraper {
         }
 
         log.info("Fetched {} vie scolaire event(s) total across {} period(s)",
-                all.size(), periods.size());
+                all.size(), targetPeriods.size());
         return all;
     }
 
@@ -161,7 +177,9 @@ public class SchoolLifeScraper {
         EventType type = switch (g) {
             case 13 -> EventType.ABSENCE;
             case 14 -> EventType.DELAY;
+            case 21 -> EventType.INFIRMARY;
             case 41 -> EventType.PUNISHMENT;
+            case 46 -> EventType.OBSERVATION;
             default -> EventType.OTHER;
         };
         event.setType(type);
@@ -207,6 +225,32 @@ public class SchoolLifeScraper {
             String datePart = event.getDate() != null ? event.getDate().toString() : "unknown";
             event.setId("DELAY@" + datePart + "@" + event.getMinutes());
 
+        } else if (type == EventType.INFIRMARY) {
+            // Infirmary visit: dateDebut.V / dateFin.V with time, actesMedicaux, symptomesMedicaux
+            JsonNode dateDebut = data.get("dateDebut");
+            String fromDs = "";
+            if (dateDebut != null) {
+                fromDs = dateDebut.has("V") ? dateDebut.get("V").asText("") : dateDebut.asText("");
+                event.setDate(parseDate(fromDs));
+                event.setTime(parseTime(fromDs));
+            }
+            JsonNode dateFin = data.get("dateFin");
+            String toTime = "";
+            if (dateFin != null) {
+                String toDs = dateFin.has("V") ? dateFin.get("V").asText("") : dateFin.asText("");
+                event.setEndDate(parseDate(toDs));
+                toTime = parseTime(toDs) != null ? parseTime(toDs) : "";
+            }
+            // reasons: actesMedicaux.V[].L (medical acts performed)
+            event.setReasons(extractLabelList(data, "actesMedicaux"));
+            // circumstances: symptomesMedicaux.V[].L (symptoms)
+            event.setCircumstances(extractLabelList(data, "symptomesMedicaux"));
+
+            // Stable ID: INFIRMARY@fromDate@fromTime@toTime
+            String datePart = event.getDate() != null ? event.getDate().toString() : "unknown";
+            String fromTime = event.getTime() != null ? event.getTime() : "00:00";
+            event.setId("INFIRMARY@" + datePart + "@" + fromTime + "@" + toTime);
+
         } else if (type == EventType.PUNISHMENT) {
             // Punishment: dateDemande.V, nature.V.L, demandeur.V.L, circonstances, duree
             JsonNode dateDemande = data.get("dateDemande");
@@ -233,20 +277,51 @@ public class SchoolLifeScraper {
             String giverPart  = event.getGiver()   != null ? event.getGiver()             : "";
             event.setId("PUNISHMENT@" + datePart + "@" + naturePart + "@" + giverPart);
 
+        } else if (type == EventType.OBSERVATION) {
+            // Observation: L (label), date.V with time, demandeur.V.L, matiere.V.L, commentaire
+            JsonNode dateNode = data.get("date");
+            String dateStr = "";
+            if (dateNode != null) {
+                dateStr = dateNode.has("V") ? dateNode.get("V").asText("") : dateNode.asText("");
+                event.setDate(parseDate(dateStr));
+                event.setTime(parseTime(dateStr));
+            }
+            // L field is the observation label (e.g. "Travail non fait", "Oubli de matériel")
+            event.setLabel(getString(data, "L", ""));
+            // Teacher who issued the observation
+            JsonNode demandeur = data.get("demandeur");
+            if (demandeur != null) {
+                JsonNode demandeurV = demandeur.has("V") ? demandeur.get("V") : demandeur;
+                event.setGiver(getString(demandeurV, "L", ""));
+            }
+            // Subject
+            JsonNode matiere = data.get("matiere");
+            if (matiere != null) {
+                JsonNode matiereV = matiere.has("V") ? matiere.get("V") : matiere;
+                event.setSubject(getString(matiereV, "L", ""));
+            }
+            // Optional free-text comment
+            event.setCircumstances(getString(data, "commentaire", ""));
+
+            // Stable ID: OBSERVATION@date@time@label@subject
+            String datePart    = event.getDate()    != null ? event.getDate().toString() : "unknown";
+            String timePart    = event.getTime()    != null ? event.getTime()            : "00:00";
+            String labelPart   = event.getLabel()   != null ? event.getLabel()           : "";
+            String subjectPart = event.getSubject() != null ? event.getSubject()         : "";
+            event.setId("OBSERVATION@" + datePart + "@" + timePart + "@" + labelPart + "@" + subjectPart);
+
         } else {
-            // OTHER: try date field, fall back to dateDebut
+            // OTHER: unknown G value — best-effort date extraction
             JsonNode dateNode = data.has("date") ? data.get("date") : data.get("dateDebut");
             if (dateNode != null) {
                 String ds = dateNode.has("V") ? dateNode.get("V").asText("") : dateNode.asText("");
                 event.setDate(parseDate(ds));
+                event.setTime(parseTime(ds));
             }
 
-            // Stable ID: OTHER@date@reasonsPrefix
-            String datePart    = event.getDate() != null ? event.getDate().toString() : "unknown";
-            String reasonsKey  = reasons != null && !reasons.isBlank()
-                    ? reasons.substring(0, Math.min(30, reasons.length()))
-                    : "G" + g;
-            event.setId("OTHER@" + datePart + "@" + reasonsKey);
+            // Stable ID: OTHER@date@G<n>
+            String datePart = event.getDate() != null ? event.getDate().toString() : "unknown";
+            event.setId("OTHER@" + datePart + "@G" + g);
         }
 
         return event;
@@ -255,6 +330,42 @@ public class SchoolLifeScraper {
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Extracts the time portion (HH:mm) from a Pronote datetime string like "DD/MM/YYYY HH:MM:SS".
+     * Returns null if the string has no time component or cannot be parsed.
+     */
+    private static String parseTime(String s) {
+        if (s == null || s.isBlank()) return null;
+        // Format: "19/09/2025 13:00:00"
+        int spaceIdx = s.indexOf(' ');
+        if (spaceIdx < 0) return null;
+        String timePart = s.substring(spaceIdx + 1).trim(); // "13:00:00"
+        try {
+            LocalTime t = LocalTime.parse(timePart);
+            return String.format("%02d:%02d", t.getHour(), t.getMinute());
+        } catch (DateTimeParseException e) {
+            log.debug("Could not parse time from '{}': {}", s, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Extracts labels from a nested list field like {@code actesMedicaux.V[].L},
+     * joining them with "; ". Returns empty string if absent or empty.
+     */
+    private static String extractLabelList(JsonNode data, String fieldName) {
+        JsonNode field = data.get(fieldName);
+        if (field == null) return "";
+        JsonNode items = field.has("V") ? field.get("V") : field;
+        if (items == null || !items.isArray() || items.isEmpty()) return "";
+        StringJoiner sj = new StringJoiner("; ");
+        for (JsonNode item : items) {
+            String label = getString(item, "L", null);
+            if (label != null && !label.isBlank()) sj.add(label.trim());
+        }
+        return sj.toString();
+    }
 
     private static String extractReasons(JsonNode data) {
         JsonNode listeMotifs = data.get("listeMotifs");

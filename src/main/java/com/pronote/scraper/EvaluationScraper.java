@@ -66,8 +66,21 @@ public class EvaluationScraper {
             return Collections.emptyList();
         }
 
+        // Evaluations are only available in trimester periods (G type == 1).
+        // Other period types (semesters, whole year) return empty results — skip them.
+        List<PronoteSession.Period> targetPeriods = periods.stream()
+                .filter(p -> p.getType() == 1)
+                .collect(java.util.stream.Collectors.toList());
+        if (targetPeriods.isEmpty()) {
+            log.debug("No trimester periods found (G=1) — using all {} period(s)", periods.size());
+            targetPeriods = periods;
+        } else {
+            log.info("Using {} trimester period(s) for evaluations (skipping {} other period(s))",
+                    targetPeriods.size(), periods.size() - targetPeriods.size());
+        }
+
         List<CompetenceEvaluation> all = new ArrayList<>();
-        for (PronoteSession.Period period : periods) {
+        for (PronoteSession.Period period : targetPeriods) {
             log.info("Fetching competence evaluations for period: {}", period.getName());
 
             ObjectNode params = jackson.createObjectNode();
@@ -86,7 +99,7 @@ public class EvaluationScraper {
         }
 
         log.info("Fetched {} competence evaluation(s) total across {} period(s)",
-                all.size(), periods.size());
+                all.size(), targetPeriods.size());
         return all;
     }
 

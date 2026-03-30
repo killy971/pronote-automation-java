@@ -23,6 +23,9 @@ public class TimetableEntry implements Identifiable {
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private EntryStatus status = EntryStatus.NORMAL;
+    /** Human-readable status label from Pronote's {@code Statut} field, e.g. "Prof. absent",
+     *  "Exceptionnel", "Cours maintenu", "Cours modifié". Null when Pronote provides no label. */
+    private String statusLabel;
     private boolean isTest;
 
     public TimetableEntry() {}
@@ -48,6 +51,9 @@ public class TimetableEntry implements Identifiable {
 
     public EntryStatus getStatus() { return status; }
     public void setStatus(EntryStatus status) { this.status = status; }
+
+    public String getStatusLabel() { return statusLabel; }
+    public void setStatusLabel(String statusLabel) { this.statusLabel = statusLabel; }
 
     public boolean isTest() { return isTest; }
     public void setTest(boolean test) { isTest = test; }

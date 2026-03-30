@@ -18,6 +18,7 @@ import com.pronote.persistence.DiffReporter;
 import com.pronote.persistence.DiffResult;
 import com.pronote.persistence.FieldChange;
 import com.pronote.persistence.SnapshotStore;
+import com.pronote.persistence.TimetableDiffFilter;
 import com.pronote.safety.LockoutGuard;
 import com.pronote.safety.RateLimiter;
 import com.pronote.domain.AttachmentRef;
@@ -31,6 +32,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -151,6 +156,20 @@ public class Main {
                 ? diffEngine.diff(prevAssignments.get(), assignments) : emptyDiff();
         DiffResult<TimetableEntry> timetableDiff = prevTimetable.isPresent()
                 ? diffEngine.diff(prevTimetable.get(), timetable) : emptyDiff();
+
+        // Apply smart timetable filtering: suppress past items and bulk normal additions
+        // for the furthest-future week when it first enters the retrieval window.
+        if (features.isTimetable() && prevTimetable.isPresent()) {
+            LocalDate furthestWeekStart = LocalDate.now()
+                    .plusWeeks(config.getPronote().getWeeksAhead())
+                    .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            TimetableDiffFilter timetableFilter = new TimetableDiffFilter();
+            timetableDiff = timetableFilter.filter(
+                    timetableDiff,
+                    prevTimetable.get(),
+                    furthestWeekStart,
+                    LocalDateTime.now());
+        }
         DiffResult<Grade> gradeDiff = prevGrades.isPresent()
                 ? diffEngine.diff(prevGrades.get(), grades) : emptyDiff();
         DiffResult<CompetenceEvaluation> evaluationDiff = prevEvaluations.isPresent()

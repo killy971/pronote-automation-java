@@ -229,6 +229,13 @@ public class TimetableScraper {
         else if (modifie) e.setStatus(EntryStatus.MODIFIED);
         else e.setStatus(EntryStatus.NORMAL);
 
+        // Human-readable status label from Pronote (e.g. "Prof. absent", "Exceptionnel",
+        // "Cours maintenu", "Cours modifié"). Present only when Pronote attaches extra context.
+        String statut = getString(data, "Statut", null);
+        if (statut != null && !statut.isBlank()) {
+            e.setStatusLabel(statut);
+        }
+
         e.setTest(getBoolean(data, "estDevoir", false));
 
         // Stable content-based ID: subject@startTime:status

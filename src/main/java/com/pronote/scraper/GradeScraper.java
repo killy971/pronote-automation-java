@@ -66,8 +66,21 @@ public class GradeScraper {
             return Collections.emptyList();
         }
 
+        // Prefer the whole-year period to avoid redundant requests and overlapping data.
+        // Fall back to all periods if no year-spanning period is found.
+        List<PronoteSession.Period> targetPeriods = periods.stream()
+                .filter(p -> p.getName() != null && p.getName().toLowerCase().contains("année"))
+                .collect(java.util.stream.Collectors.toList());
+        if (targetPeriods.isEmpty()) {
+            log.debug("No whole-year period found — using all {} period(s)", periods.size());
+            targetPeriods = periods;
+        } else {
+            log.info("Using whole-year period '{}' for grades (skipping {} other period(s))",
+                    targetPeriods.get(0).getName(), periods.size() - targetPeriods.size());
+        }
+
         List<Grade> all = new ArrayList<>();
-        for (PronoteSession.Period period : periods) {
+        for (PronoteSession.Period period : targetPeriods) {
             log.info("Fetching grades for period: {}", period.getName());
 
             ObjectNode params = jackson.createObjectNode();
@@ -85,7 +98,7 @@ public class GradeScraper {
             all.addAll(periodGrades);
         }
 
-        log.info("Fetched {} grade(s) total across {} period(s)", all.size(), periods.size());
+        log.info("Fetched {} grade(s) total across {} period(s)", all.size(), targetPeriods.size());
         return all;
     }
 
