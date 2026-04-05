@@ -6,6 +6,7 @@ JAVA    := $(if $(JAVA21),$(JAVA21),java)
 JAR     := build/libs/pronote-automation-1.0.0.jar
 CONFIG  := config.yaml
 
+JVM_OPTS := -Djava.net.preferIPv4Stack=true
 ARGS ?=
 
 .PHONY: build test run run-debug views diff notify-preview clean help
@@ -25,7 +26,7 @@ run: $(JAR)
 		echo "ERROR: $(CONFIG) not found. Copy config.yaml.example and fill in your credentials."; \
 		exit 1; \
 	fi
-	$(JAVA) -Xmx128m -jar $(JAR) --config $(CONFIG)
+	$(JAVA) -Xmx128m $(JVM_OPTS) -jar $(JAR) --config $(CONFIG)
 
 ## run-debug: run with DEBUG logging enabled
 run-debug: $(JAR)
@@ -41,7 +42,7 @@ views: $(JAR)
 		echo "ERROR: $(CONFIG) not found."; \
 		exit 1; \
 	fi
-	$(JAVA) -Xmx128m -jar $(JAR) --config $(CONFIG) --mode views
+	$(JAVA) -Xmx128m $(JVM_OPTS) -jar $(JAR) --config $(CONFIG) --mode views
 
 ## diff: re-run diff between the last two snapshots and re-notify if changes exist (offline)
 diff: $(JAR)
@@ -49,7 +50,7 @@ diff: $(JAR)
 		echo "ERROR: $(CONFIG) not found."; \
 		exit 1; \
 	fi
-	$(JAVA) -Xmx128m -jar $(JAR) --config $(CONFIG) --mode diff $(ARGS)
+	$(JAVA) -Xmx128m $(JVM_OPTS) -jar $(JAR) --config $(CONFIG) --mode diff $(ARGS)
 
 ## notify-preview: show what the next notification would look like without sending it (offline)
 notify-preview: $(JAR)
@@ -57,7 +58,7 @@ notify-preview: $(JAR)
 		echo "ERROR: $(CONFIG) not found."; \
 		exit 1; \
 	fi
-	$(JAVA) -Xmx128m -jar $(JAR) --config $(CONFIG) --mode diff --dry-run
+	$(JAVA) -Xmx128m $(JVM_OPTS) -jar $(JAR) --config $(CONFIG) --mode diff --dry-run
 
 ## clean: remove build artifacts
 clean:
