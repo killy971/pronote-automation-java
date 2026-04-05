@@ -139,7 +139,6 @@ public class TimetableScraper {
             JsonNode data = item.has("V") ? item.get("V") : item;
             if (!matchesGroup(data, group)) {
                 skippedGroup++;
-                log.debug("Skipping entry — group does not match filter \"{}\"", group);
                 continue;
             }
             try {
@@ -159,10 +158,16 @@ public class TimetableScraper {
      *
      * <p>Pronote entries with a G=2 item in ListeContenus are group-specific (e.g. "[6C SIA G1]").
      * Entries with no G=2 item apply to the whole class and are always included.
-     * When a group is configured, only entries whose G=2 label contains the configured group
-     * string (case-insensitive) are kept.
+     * When a group is configured, only entries where AT LEAST ONE G=2 label contains the
+     * configured group string (case-insensitive) are kept.
+     *
+     * <p>An entry may have multiple G=2 items in ListeContenus (pronotepy collects them all as
+     * {@code group_names}). We therefore scan all G=2 items and include the entry if ANY label
+     * matches the configured group. Returning on the first G=2 item was a bug: a class-level label
+     * (e.g. "6C") appearing before the group-specific one (e.g. "6C SIA G1") would cause a false
+     * exclusion.
      */
-    private static boolean matchesGroup(JsonNode data, String group) {
+    private boolean matchesGroup(JsonNode data, String group) {
         if (group == null || group.isBlank()) return true;
 
         JsonNode listeContenus = data.get("ListeContenus");
@@ -171,14 +176,24 @@ public class TimetableScraper {
         if (items == null || !items.isArray()) return true;
 
         String groupLower = group.toLowerCase();
+        List<String> groupLabels = new ArrayList<>();
         for (JsonNode item : items) {
             if (item.has("G") && item.get("G").asInt(-1) == 2) {
                 String label = item.has("L") ? item.get("L").asText("") : "";
-                return label.toLowerCase().contains(groupLower);
+                groupLabels.add(label);
             }
         }
-        // No G=2 item → whole-class entry, always include
-        return true;
+
+        if (groupLabels.isEmpty()) {
+            // No G=2 item → whole-class entry, always include
+            return true;
+        }
+
+        boolean matches = groupLabels.stream().anyMatch(l -> l.toLowerCase().contains(groupLower));
+        if (!matches) {
+            log.debug("Skipping entry — G=2 labels {} do not match filter \"{}\"", groupLabels, group);
+        }
+        return matches;
     }
 
     private TimetableEntry mapEntry(JsonNode data) {

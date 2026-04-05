@@ -14,6 +14,8 @@ import com.pronote.domain.AttachmentRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.commons.text.StringEscapeUtils;
+
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.DayOfWeek;
@@ -168,7 +170,8 @@ public class AssignmentScraper {
         String assignedPart = a.getAssignedDate() != null ? a.getAssignedDate().toString() : "unknown";
         a.setId((a.getSubject() != null ? a.getSubject() : "") + "@" + duePart + "@" + assignedPart);
 
-        // Assignments carry no teacher — enrichment uses subject-only rules.
+        // Assignments carry no teacher in the Pronote API response.
+        // Apply subject-only rules here; Main.java re-enriches with teacher resolved from timetable.
         a.setEnrichedSubject(subjectEnricher.enrich(a.getSubject(), null));
 
         // description: descriptif.V (rich-text object; fall back to plain string)
@@ -293,9 +296,9 @@ public class AssignmentScraper {
         }
     }
 
-    /** Strips basic HTML tags from description text. */
+    /** Strips HTML tags from description text and decodes HTML entities. */
     private static String stripHtml(String html) {
         if (html == null) return "";
-        return html.replaceAll("<[^>]+>", "").trim();
+        return StringEscapeUtils.unescapeHtml4(html.replaceAll("<[^>]+>", "").trim());
     }
 }

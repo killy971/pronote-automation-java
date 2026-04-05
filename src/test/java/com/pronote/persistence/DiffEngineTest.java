@@ -37,10 +37,10 @@ class DiffEngineTest {
                 assignment("2", "French", false));
 
         DiffResult<Assignment> result = engine.diff(prev, curr);
-        assertEquals(1, result.getAdded().size());
-        assertEquals("2", result.getAdded().get(0).getId());
-        assertTrue(result.getRemoved().isEmpty());
-        assertTrue(result.getModified().isEmpty());
+        assertEquals(1, result.added().size());
+        assertEquals("2", result.added().get(0).getId());
+        assertTrue(result.removed().isEmpty());
+        assertTrue(result.modified().isEmpty());
     }
 
     @Test
@@ -51,8 +51,8 @@ class DiffEngineTest {
         List<Assignment> curr = List.of(assignment("1", "Math", false));
 
         DiffResult<Assignment> result = engine.diff(prev, curr);
-        assertEquals(1, result.getRemoved().size());
-        assertEquals("2", result.getRemoved().get(0).getId());
+        assertEquals(1, result.removed().size());
+        assertEquals("2", result.removed().get(0).getId());
     }
 
     @Test
@@ -61,15 +61,15 @@ class DiffEngineTest {
         Assignment after  = assignment("1", "Math", true);
 
         DiffResult<Assignment> result = engine.diff(List.of(before), List.of(after));
-        assertTrue(result.getAdded().isEmpty());
-        assertTrue(result.getRemoved().isEmpty());
-        assertEquals(1, result.getModified().size());
+        assertTrue(result.added().isEmpty());
+        assertTrue(result.removed().isEmpty());
+        assertEquals(1, result.modified().size());
 
-        List<FieldChange> changes = result.getModified().values().iterator().next();
+        List<FieldChange> changes = result.modified().values().iterator().next();
         assertEquals(1, changes.size());
-        assertEquals("done", changes.get(0).getFieldName());
-        assertEquals("false", changes.get(0).getOldValue());
-        assertEquals("true", changes.get(0).getNewValue());
+        assertEquals("done", changes.get(0).fieldName());
+        assertEquals("false", changes.get(0).oldValue());
+        assertEquals("true", changes.get(0).newValue());
     }
 
     @Test
@@ -78,9 +78,9 @@ class DiffEngineTest {
         Assignment after  = assignment("1", "Mathematics", false);
 
         DiffResult<Assignment> result = engine.diff(List.of(before), List.of(after));
-        assertFalse(result.getModified().isEmpty());
-        List<FieldChange> changes = result.getModified().values().iterator().next();
-        assertTrue(changes.stream().anyMatch(c -> "subject".equals(c.getFieldName())));
+        assertFalse(result.modified().isEmpty());
+        List<FieldChange> changes = result.modified().values().iterator().next();
+        assertTrue(changes.stream().anyMatch(c -> "subject".equals(c.fieldName())));
     }
 
     @Test
@@ -90,9 +90,9 @@ class DiffEngineTest {
                 assignment("2", "French", false));
 
         DiffResult<Assignment> result = engine.diff(List.of(), curr);
-        assertEquals(2, result.getAdded().size());
-        assertTrue(result.getRemoved().isEmpty());
-        assertTrue(result.getModified().isEmpty());
+        assertEquals(2, result.added().size());
+        assertTrue(result.removed().isEmpty());
+        assertTrue(result.modified().isEmpty());
     }
 
     @Test
@@ -102,7 +102,7 @@ class DiffEngineTest {
                 assignment("2", "French", false));
 
         DiffResult<Assignment> result = engine.diff(prev, List.of());
-        assertEquals(2, result.getRemoved().size());
-        assertTrue(result.getAdded().isEmpty());
+        assertEquals(2, result.removed().size());
+        assertTrue(result.added().isEmpty());
     }
 }

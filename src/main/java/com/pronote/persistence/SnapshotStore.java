@@ -13,6 +13,7 @@ import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -125,6 +126,38 @@ public class SnapshotStore {
                  });
         } catch (IOException e) {
             log.warn("Could not list archive directory for purge: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Loads the most recent archived snapshot for the given type (the one that was
+     * {@code latest.json} before the last {@link #saveSnapshot} call).
+     *
+     * @param type e.g. "assignments" or "timetable"
+     * @param ref  Jackson TypeReference for the list type
+     * @return the deserialized list, or empty if no archive entry exists
+     */
+    public <T> Optional<List<T>> loadPrevious(String type, TypeReference<List<T>> ref) {
+        Path archiveDir = snapshotDir(type).resolve("archive");
+        if (!Files.exists(archiveDir)) {
+            log.debug("No archive directory for type '{}'", type);
+            return Optional.empty();
+        }
+        try (Stream<Path> files = Files.list(archiveDir)) {
+            Optional<Path> mostRecent = files
+                    .filter(p -> p.toString().endsWith(".json"))
+                    .max(Comparator.comparing(p -> p.getFileName().toString()));
+            if (mostRecent.isEmpty()) {
+                log.debug("Archive for type '{}' is empty", type);
+                return Optional.empty();
+            }
+            List<T> items = jackson.readValue(mostRecent.get().toFile(), ref);
+            log.debug("Loaded {} items from previous snapshot '{}' ({})",
+                    items.size(), type, mostRecent.get().getFileName());
+            return Optional.of(items);
+        } catch (IOException e) {
+            log.warn("Could not read previous snapshot '{}': {}", type, e.getMessage());
+            return Optional.empty();
         }
     }
 

@@ -9,6 +9,7 @@
 3. Diffs the results against the previous run
 4. Sends push (ntfy) and/or email notifications when changes are detected
 5. Persists snapshots to disk for the next comparison
+6. Generates static HTML timetable views for the upcoming weekdays (self-contained, no JS)
 
 Target runtime: **Raspberry Pi (Raspbian)**, triggered by two systemd timers — one frequent (every 15 min, all day) and one school-hours only.
 
@@ -18,6 +19,18 @@ Target runtime: **Raspberry Pi (Raspbian)**, triggered by two systemd timers —
 |---|---|---|
 | `--config <path>` | No (default: `config.yaml`) | Path to the YAML configuration file |
 | `--features <list>` | No (default: config `features.*` flags) | Comma-separated subset of features to run: `assignments`, `timetable`, `grades`, `evaluations`, `schoolLife`. Overrides all `features.*` flags in config for this invocation. Unknown names fail fast. |
+| `--mode <mode>` | No (default: `fetch`) | Run mode: `fetch` (full online pipeline), `views` (regenerate HTML from last snapshot, offline), `diff` (re-run diff between last two snapshots + re-notify, offline). |
+
+**Make targets:**
+
+| Target | Description |
+|---|---|
+| `make run` | Full run: fetch from Pronote, diff, notify, save snapshots, generate views |
+| `make views` | Offline: regenerate HTML timetable views from `data/snapshots/timetable/latest.json` |
+| `make diff` | Offline: re-run diff between archive[-1] and `latest.json`, re-notify if changes exist |
+| `make run-debug` | Same as `make run` with DEBUG logging |
+| `make build` | Compile and package the fat JAR |
+| `make test` | Run unit tests |
 
 ---
 
@@ -35,7 +48,8 @@ Main
  ├── TimetableScraper      → calls PageEmploiDuTemps API function
  ├── SnapshotStore         → read/write latest.json + archive/
  ├── DiffEngine            → field-level comparison via Jackson tree model
- └── CompositeNotifier     → fan-out to NtfyNotifier + EmailNotifier
+ ├── CompositeNotifier     → fan-out to NtfyNotifier + EmailNotifier
+ └── TimetableViewRenderer → generates static HTML pages from timetable snapshot
 ```
 
 All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counter state).
@@ -66,6 +80,8 @@ All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counte
 | `notification` | `NtfyNotifier` | HTTP POST to ntfy topic |
 | `notification` | `EmailNotifier` | Jakarta Mail SMTP + STARTTLS |
 | `notification` | `CompositeNotifier` | Fan-out; per-channel failure is logged, not fatal |
+| `views` | `TimetableHtmlGenerator` | Builds one self-contained HTML5 day page from a `List<TimetableEntry>` |
+| `views` | `TimetableViewRenderer` | Computes target dates, calls generator per day, writes files + `index.html` |
 
 ---
 
@@ -213,6 +229,39 @@ data/snapshots/assignments/attachments/<sanitized-assignmentId>/<sanitizedFileNa
 
 ---
 
+## Timetable HTML Views
+
+After each successful timetable fetch, `Main.java` calls `TimetableViewRenderer.render(timetable)` (step 11), which is **unconditional** — it regenerates all pages on every run regardless of whether a diff was detected. This keeps views in sync with the latest snapshot.
+
+### Config (`timetableView` block)
+
+| Key | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Set to `false` to skip all view generation |
+| `outputDirectory` | `./data/views/timetable` | Where HTML files are written. Use `./docs/timetable` for GitHub Pages. |
+| `daysAhead` | `5` | Number of upcoming **weekdays** (Mon–Fri) to generate, starting from today |
+
+### Output
+
+One file per weekday: `YYYY-MM-DD.html` + an `index.html` overview card grid. All files are self-contained (CSS embedded inline — no external resources).
+
+### CSS / styling
+
+All CSS lives in the `TimetableHtmlGenerator.CSS` static text-block constant. It is embedded verbatim into every generated file.
+- Light/dark mode: `prefers-color-scheme` media query with CSS custom properties — **no JavaScript**.
+- Responsive: `max-width: 480px` centred container; same layout works on mobile and desktop.
+- Subject accent colours: 12-colour palette; colour index = `abs(subject.hashCode()) % 12` — deterministic across runs and days.
+
+### Modifying the views
+
+To change layout or styling, edit `TimetableHtmlGenerator.CSS` and/or the HTML-building methods in `TimetableHtmlGenerator`. The renderer (`TimetableViewRenderer`) only handles file I/O and date selection — it does not contain any HTML.
+
+### GitHub Pages deployment
+
+Point `outputDirectory` to `docs/timetable` in `config.yaml`, commit the `docs/` folder, and enable GitHub Pages from the `docs/` root in the repository settings.
+
+---
+
 ## Known Risks and Fragile Areas
 
 | Risk | Fragility | Notes |
@@ -239,8 +288,9 @@ src/main/java/com/pronote/
 ├── scraper/      AssignmentScraper, TimetableScraper, AttachmentDownloader
 ├── domain/       Assignment, TimetableEntry, EntryStatus, AttachmentRef
 ├── persistence/  SnapshotStore, DiffEngine, DiffResult, FieldChange, Identifiable
-└── notification/ NotificationService, NotificationPayload,
-                  NtfyNotifier, EmailNotifier, CompositeNotifier
+├── notification/ NotificationService, NotificationPayload,
+│                 NtfyNotifier, EmailNotifier, CompositeNotifier
+└── views/        TimetableHtmlGenerator, TimetableViewRenderer
 ```
 
 Runtime data directory (default: `./data/`):
@@ -256,5 +306,9 @@ data/
 │   │       └── <sanitizedFileName>   ← downloaded G=1 files; idempotent across runs
 │   ├── timetable/latest.json
 │   └── timetable/archive/*.json
+├── views/
+│   └── timetable/        ← default timetableView.outputDirectory
+│       ├── index.html    ← day-card overview, regenerated every run
+│       └── YYYY-MM-DD.html  ← one self-contained page per upcoming weekday
 └── logs/app.log
 ```

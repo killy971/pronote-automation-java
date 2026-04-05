@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
@@ -39,12 +40,12 @@ public class NtfyNotifier implements NotificationService {
 
         Request.Builder req = new Request.Builder()
                 .url(url)
-                .post(RequestBody.create(payload.getBody(), TEXT))
-                .addHeader("Title", payload.getTitle())
-                .addHeader("Priority", ntfyPriority(payload.getPriority()));
+                .post(RequestBody.create(payload.body(), TEXT))
+                .addHeader("Title", encodeHeaderValue(payload.title()))
+                .addHeader("Priority", ntfyPriority(payload.priority()));
 
-        if (!payload.getTags().isEmpty()) {
-            req.addHeader("Tags", String.join(",", payload.getTags()));
+        if (!payload.tags().isEmpty()) {
+            req.addHeader("Tags", encodeHeaderValue(String.join(",", payload.tags())));
         }
 
         if (config.getToken() != null && !config.getToken().isBlank()) {
@@ -55,24 +56,41 @@ public class NtfyNotifier implements NotificationService {
 
         try (Response response = http.newCall(req.build()).execute()) {
             if (!response.isSuccessful()) {
-                String body = response.body() != null ? response.body().string() : "(empty)";
-                throw new NotificationException("ntfy returned HTTP " + response.code() + ": " + body);
+                String responseBody = response.body() != null ? response.body().string() : "(empty)";
+                throw new NotificationException("ntfy returned HTTP " + response.code() + ": " + responseBody);
             }
-            log.info("ntfy notification sent (title: '{}')", payload.getTitle());
+            log.info("ntfy notification sent (title: '{}')", payload.title());
+        } catch (NotificationException e) {
+            throw e;
         } catch (IOException e) {
             throw new NotificationException("Network error sending ntfy notification: " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            throw new NotificationException("Unexpected error sending ntfy notification: " + e.getMessage(), e);
         }
     }
 
     private static String ntfyPriority(NotificationPayload.Priority p) {
         return switch (p) {
             case LOW    -> "low";
+            case NORMAL -> "default";
             case HIGH   -> "high";
-            default     -> "default";
         };
     }
 
     private static String normalizeUrl(String url) {
         return url.endsWith("/") ? url : url + "/";
+    }
+
+    /**
+     * URL-encodes the value if it contains non-ASCII characters.
+     * OkHttp rejects non-ASCII bytes in header values; ntfy accepts URL-encoded headers.
+     */
+    private static String encodeHeaderValue(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            if (value.charAt(i) > 0x7F) {
+                return URLEncoder.encode(value, StandardCharsets.UTF_8);
+            }
+        }
+        return value;
     }
 }

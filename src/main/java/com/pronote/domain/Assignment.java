@@ -21,7 +21,9 @@ public class Assignment implements Identifiable {
     private String id;
     private String subject;
     /** Enriched display name derived from {@code subject} via {@code subjectEnrichment} config
-     *  rules. Assignments carry no teacher, so only subject-only rules apply.
+     *  rules. Teacher is resolved by cross-referencing the timetable on the assigned date,
+     *  enabling teacher-specific rules (e.g. the Histoire/Géographie split). Falls back to
+     *  subject-only rules when no matching timetable entry is found.
      *  Equals {@code subject} when no rule matches. */
     private String enrichedSubject;
     private String description;

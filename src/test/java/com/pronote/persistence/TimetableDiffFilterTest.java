@@ -126,8 +126,8 @@ class TimetableDiffFilterTest {
         DiffResult<TimetableEntry> raw = diff(List.of(), List.of(past, future), Map.of());
         DiffResult<TimetableEntry> result = filter.filter(raw, List.of(), MONDAY_FUTURE, NOW);
 
-        assertEquals(1, result.getRemoved().size());
-        assertEquals("future", result.getRemoved().get(0).getId());
+        assertEquals(1, result.removed().size());
+        assertEquals("future", result.removed().get(0).getId());
     }
 
     @Test
@@ -140,9 +140,9 @@ class TimetableDiffFilterTest {
                 Map.of(past, changes, future, changes));
         DiffResult<TimetableEntry> result = filter.filter(raw, List.of(), MONDAY_FUTURE, NOW);
 
-        assertEquals(1, result.getModified().size());
-        assertTrue(result.getModified().containsKey(future));
-        assertFalse(result.getModified().containsKey(past));
+        assertEquals(1, result.modified().size());
+        assertTrue(result.modified().containsKey(future));
+        assertFalse(result.modified().containsKey(past));
     }
 
     // -------------------------------------------------------------------------
@@ -158,7 +158,7 @@ class TimetableDiffFilterTest {
         // previousSnapshot has NO entries in MONDAY_FUTURE week → newly discovered
         DiffResult<TimetableEntry> result = filter.filter(raw, List.of(), MONDAY_FUTURE, NOW);
 
-        assertTrue(result.getAdded().isEmpty(),
+        assertTrue(result.added().isEmpty(),
                 "Normal entries in newly discovered week must be suppressed");
     }
 
@@ -170,8 +170,8 @@ class TimetableDiffFilterTest {
         DiffResult<TimetableEntry> raw = diff(List.of(cancelled, normal), List.of(), Map.of());
         DiffResult<TimetableEntry> result = filter.filter(raw, List.of(), MONDAY_FUTURE, NOW);
 
-        assertEquals(1, result.getAdded().size());
-        assertEquals("c1", result.getAdded().get(0).getId());
+        assertEquals(1, result.added().size());
+        assertEquals("c1", result.added().get(0).getId());
     }
 
     @Test
@@ -183,7 +183,7 @@ class TimetableDiffFilterTest {
         DiffResult<TimetableEntry> raw = diff(List.of(newEntry), List.of(), Map.of());
         DiffResult<TimetableEntry> result = filter.filter(raw, List.of(existing), MONDAY_FUTURE, NOW);
 
-        assertEquals(1, result.getAdded().size(),
+        assertEquals(1, result.added().size(),
                 "Week was already known — additions must not be suppressed");
     }
 
@@ -199,7 +199,7 @@ class TimetableDiffFilterTest {
         // furthest week is MONDAY_FUTURE, which has nothing in previous snapshot
         DiffResult<TimetableEntry> result = filter.filter(raw, List.of(), MONDAY_FUTURE, NOW);
 
-        assertEquals(1, result.getAdded().size(),
+        assertEquals(1, result.added().size(),
                 "Additions in current/intermediate weeks must never be suppressed");
     }
 

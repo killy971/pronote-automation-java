@@ -43,3 +43,6 @@ vendor/
 
 # Keep the example config
 !config.yaml.example
+
+# Temporary working directory
+tmp/

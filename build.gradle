@@ -30,6 +30,9 @@ dependencies {
     // Config
     implementation 'org.yaml:snakeyaml:2.2'
 
+    // HTML entity decoding (StringEscapeUtils.unescapeHtml4)
+    implementation 'org.apache.commons:commons-text:1.12.0'
+
     // Logging
     implementation 'org.slf4j:slf4j-api:2.0.13'
     implementation 'ch.qos.logback:logback-classic:1.5.6'

@@ -48,13 +48,13 @@ public class TimetableDiffFilter {
             LocalDateTime now) {
 
         // 1. Filter removed: drop past items (lesson already over — not actionable)
-        List<TimetableEntry> removed = raw.getRemoved().stream()
+        List<TimetableEntry> removed = raw.removed().stream()
                 .filter(e -> !isPast(e, now))
                 .toList();
 
         // 2. Filter modified: drop past items
         Map<TimetableEntry, List<FieldChange>> modified = new LinkedHashMap<>();
-        for (Map.Entry<TimetableEntry, List<FieldChange>> entry : raw.getModified().entrySet()) {
+        for (Map.Entry<TimetableEntry, List<FieldChange>> entry : raw.modified().entrySet()) {
             if (!isPast(entry.getKey(), now)) {
                 modified.put(entry.getKey(), entry.getValue());
             }
@@ -67,7 +67,7 @@ public class TimetableDiffFilter {
                     furthestWeekStart);
         }
 
-        List<TimetableEntry> added = raw.getAdded().stream()
+        List<TimetableEntry> added = raw.added().stream()
                 .filter(e -> {
                     if (furthestWeekIsNew
                             && belongsToWeek(e, furthestWeekStart)
@@ -79,9 +79,9 @@ public class TimetableDiffFilter {
                 })
                 .toList();
 
-        int suppressedAdded   = raw.getAdded().size()     - added.size();
-        int suppressedRemoved = raw.getRemoved().size()   - removed.size();
-        int suppressedModified = raw.getModified().size() - modified.size();
+        int suppressedAdded    = raw.added().size()    - added.size();
+        int suppressedRemoved  = raw.removed().size()  - removed.size();
+        int suppressedModified = raw.modified().size() - modified.size();
         if (suppressedAdded > 0 || suppressedRemoved > 0 || suppressedModified > 0) {
             log.info("Timetable diff filter suppressed {} added, {} removed, {} modified",
                     suppressedAdded, suppressedRemoved, suppressedModified);

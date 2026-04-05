@@ -8,21 +8,10 @@ import java.util.Map;
  *
  * @param <T> the domain type being compared
  */
-public class DiffResult<T extends Identifiable> {
-
-    private final List<T> added;
-    private final List<T> removed;
-    private final Map<T, List<FieldChange>> modified;
-
-    public DiffResult(List<T> added, List<T> removed, Map<T, List<FieldChange>> modified) {
-        this.added = added;
-        this.removed = removed;
-        this.modified = modified;
-    }
-
-    public List<T> getAdded()                        { return added; }
-    public List<T> getRemoved()                      { return removed; }
-    public Map<T, List<FieldChange>> getModified()   { return modified; }
+public record DiffResult<T extends Identifiable>(
+        List<T> added,
+        List<T> removed,
+        Map<T, List<FieldChange>> modified) {
 
     /** Returns true if there are no differences at all. */
     public boolean isEmpty() {

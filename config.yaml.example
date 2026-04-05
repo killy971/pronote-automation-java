@@ -16,9 +16,12 @@ pronote:
   # How many weeks ahead to fetch assignments
   weeksAhead: 2
   # Optional: class group filter. Only timetable entries belonging to this group are kept.
-  # Entries with no group (whole-class lessons) are always included.
-  # Use the group label as it appears in Pronote, e.g. "6C SIA G1".
-  # Omit or leave blank to disable filtering.
+  # Class group filter. When set, only entries whose G=2 label in ListeContenus matches this
+  # string (case-insensitive substring) are kept; entries with no G=2 label (whole-class) are
+  # always included regardless. Leave blank (default) to disable — recommended when using a
+  # parent account with childId set, because the ressource param already scopes results to the
+  # specific child and Pronote does not return entries for parallel groups the child is not in.
+  # Use only if you observe duplicate entries for both halves of a subject-group split.
   # group: "6C SIA G1"
 
 data:
@@ -59,3 +62,21 @@ notifications:
     password: "your_app_password"
     from: "you@gmail.com"
     to: "recipient@example.com"
+
+timetableView:
+  # Generate static HTML pages for the upcoming N weekdays after each timetable fetch.
+  # Files are written to outputDirectory: one YYYY-MM-DD.html per day, plus index.html.
+  enabled: true
+  # Output directory. Use "./docs/timetable" to publish via GitHub Pages.
+  outputDirectory: "./data/views/timetable"
+  # Number of upcoming weekdays (Mon–Fri) to generate, starting from today.
+  daysAhead: 5
+
+assignmentView:
+  # Generate a single static HTML page listing all upcoming assignments (dueDate >= today)
+  # after each successful assignments fetch. Assignments are grouped by due date then subject.
+  # Local attachments (downloaded files) are linked via relative paths; hyperlinks are linked
+  # to their external URL. The page is responsive and print-friendly.
+  enabled: true
+  # Output directory for the generated index.html.
+  outputDirectory: "./data/views/assignments"

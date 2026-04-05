@@ -1,5 +1,8 @@
 package com.pronote.config;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Root configuration POJO. Populated by SnakeYAML from config.yaml.
  */
@@ -11,6 +14,8 @@ public class AppConfig {
     private NotificationsConfig notifications = new NotificationsConfig();
     private FeaturesConfig features = new FeaturesConfig();
     private SubjectEnrichmentConfig subjectEnrichment = new SubjectEnrichmentConfig();
+    private TimetableViewConfig timetableView = new TimetableViewConfig();
+    private AssignmentViewConfig assignmentView = new AssignmentViewConfig();
 
     // -------------------------------------------------------------------------
     // Getters / setters (plain, for SnakeYAML)
@@ -33,6 +38,12 @@ public class AppConfig {
 
     public SubjectEnrichmentConfig getSubjectEnrichment() { return subjectEnrichment; }
     public void setSubjectEnrichment(SubjectEnrichmentConfig subjectEnrichment) { this.subjectEnrichment = subjectEnrichment; }
+
+    public TimetableViewConfig getTimetableView() { return timetableView; }
+    public void setTimetableView(TimetableViewConfig timetableView) { this.timetableView = timetableView; }
+
+    public AssignmentViewConfig getAssignmentView() { return assignmentView; }
+    public void setAssignmentView(AssignmentViewConfig assignmentView) { this.assignmentView = assignmentView; }
 
     // =========================================================================
     // Nested config classes
@@ -214,12 +225,53 @@ public class AppConfig {
      * When no rule matches, {@code enrichedSubject} equals the original subject.
      */
     public static class SubjectEnrichmentConfig {
-        private java.util.List<SubjectEnrichmentRule> rules = new java.util.ArrayList<>();
+        private List<SubjectEnrichmentRule> rules = new ArrayList<>();
 
-        public java.util.List<SubjectEnrichmentRule> getRules() { return rules; }
-        public void setRules(java.util.List<SubjectEnrichmentRule> rules) {
-            this.rules = rules != null ? rules : new java.util.ArrayList<>();
+        public List<SubjectEnrichmentRule> getRules() { return rules; }
+        public void setRules(List<SubjectEnrichmentRule> rules) {
+            this.rules = rules != null ? rules : new ArrayList<>();
         }
+    }
+
+    /**
+     * Configuration for generating static HTML timetable views.
+     * When enabled, one self-contained HTML file is written per upcoming weekday
+     * after each successful timetable fetch, plus an {@code index.html} overview.
+     */
+    public static class TimetableViewConfig {
+        private boolean enabled = true;
+        /** Output directory for generated HTML files. Relative paths are resolved from the JVM
+         *  working directory. Point this to {@code docs/timetable} to use with GitHub Pages. */
+        private String outputDirectory = "./data/views/timetable";
+        /** Number of upcoming weekdays (Mon–Fri) for which to generate a page, starting today. */
+        private int daysAhead = 5;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getOutputDirectory() { return outputDirectory; }
+        public void setOutputDirectory(String outputDirectory) { this.outputDirectory = outputDirectory; }
+
+        public int getDaysAhead() { return daysAhead; }
+        public void setDaysAhead(int daysAhead) { this.daysAhead = daysAhead; }
+    }
+
+    /**
+     * Configuration for generating the static HTML assignment view.
+     * When enabled, a single {@code index.html} is written listing all upcoming assignments
+     * (dueDate &ge; today) grouped by date and subject, after each successful assignments fetch.
+     */
+    public static class AssignmentViewConfig {
+        private boolean enabled = true;
+        /** Output directory for the generated HTML file. Relative paths are resolved from the JVM
+         *  working directory. */
+        private String outputDirectory = "./data/views/assignments";
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getOutputDirectory() { return outputDirectory; }
+        public void setOutputDirectory(String outputDirectory) { this.outputDirectory = outputDirectory; }
     }
 
     /** A single subject-enrichment mapping rule. {@code teacher} is optional. */

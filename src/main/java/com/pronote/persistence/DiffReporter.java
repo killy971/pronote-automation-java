@@ -102,11 +102,11 @@ public class DiffReporter {
         root.put("firstRun", isFirstRun);
         root.put("hasChanges", hasChanges);
 
-        root.set("assignments",  buildSection(asgn,       isFirstRun));
-        root.set("timetable",    buildSection(tt,         isFirstRun));
-        root.set("grades",       buildSection(grades,     isFirstRun));
-        root.set("evaluations",  buildSection(evals,      isFirstRun));
-        root.set("schoolLife",   buildSection(schoolLife, isFirstRun));
+        root.set("assignments",  buildSection(asgn,        isFirstRun));
+        root.set("timetable",    buildSection(tt,          isFirstRun));
+        root.set("grades",       buildSection(grades,      isFirstRun));
+        root.set("evaluations",  buildSection(evals,       isFirstRun));
+        root.set("schoolLife",   buildSection(schoolLife,  isFirstRun));
 
         Path target = dataDir.resolve("diff-latest.json");
         try {
@@ -123,30 +123,30 @@ public class DiffReporter {
             section.put("note", "first run — baseline established, no diff computed");
             return section;
         }
-        section.put("added",    diff.getAdded().size());
-        section.put("removed",  diff.getRemoved().size());
-        section.put("modified", diff.getModified().size());
+        section.put("added",    diff.added().size());
+        section.put("removed",  diff.removed().size());
+        section.put("modified", diff.modified().size());
 
         ArrayNode addedArr = section.putArray("addedItems");
-        for (T item : diff.getAdded()) {
+        for (T item : diff.added()) {
             addedArr.add(jackson.valueToTree(item));
         }
 
         ArrayNode removedArr = section.putArray("removedItems");
-        for (T item : diff.getRemoved()) {
+        for (T item : diff.removed()) {
             removedArr.add(jackson.valueToTree(item));
         }
 
         ArrayNode modifiedArr = section.putArray("modifiedItems");
-        for (Map.Entry<T, List<FieldChange>> entry : diff.getModified().entrySet()) {
+        for (Map.Entry<T, List<FieldChange>> entry : diff.modified().entrySet()) {
             ObjectNode modNode = jackson.createObjectNode();
             modNode.set("item", jackson.valueToTree(entry.getKey()));
             ArrayNode changes = modNode.putArray("changes");
             for (FieldChange fc : entry.getValue()) {
                 ObjectNode changeNode = jackson.createObjectNode();
-                changeNode.put("field",    fc.getFieldName());
-                changeNode.put("oldValue", fc.getOldValue() != null ? fc.getOldValue().toString() : null);
-                changeNode.put("newValue", fc.getNewValue() != null ? fc.getNewValue().toString() : null);
+                changeNode.put("field",    fc.fieldName());
+                changeNode.put("oldValue", fc.oldValue() != null ? fc.oldValue().toString() : null);
+                changeNode.put("newValue", fc.newValue() != null ? fc.newValue().toString() : null);
                 changes.add(changeNode);
             }
             modifiedArr.add(modNode);
@@ -166,20 +166,20 @@ public class DiffReporter {
         if (isFirstRun) {
             line = runAt + " | FIRST_RUN  | baseline established";
         } else if (hasChanges) {
-            int total = asgn.getAdded().size()       + asgn.getRemoved().size()       + asgn.getModified().size()
-                    + tt.getAdded().size()          + tt.getRemoved().size()          + tt.getModified().size()
-                    + grades.getAdded().size()      + grades.getRemoved().size()      + grades.getModified().size()
-                    + evals.getAdded().size()       + evals.getRemoved().size()       + evals.getModified().size()
-                    + schoolLife.getAdded().size()  + schoolLife.getRemoved().size()  + schoolLife.getModified().size();
+            int total = asgn.added().size()       + asgn.removed().size()       + asgn.modified().size()
+                    + tt.added().size()          + tt.removed().size()          + tt.modified().size()
+                    + grades.added().size()      + grades.removed().size()      + grades.modified().size()
+                    + evals.added().size()       + evals.removed().size()       + evals.modified().size()
+                    + schoolLife.added().size()  + schoolLife.removed().size()  + schoolLife.modified().size();
             line = String.format(
                     "%s | CHANGES(%d) | assignments: +%d -%d ~%d | timetable: +%d -%d ~%d"
                             + " | grades: +%d -%d ~%d | evals: +%d -%d ~%d | school-life: +%d -%d ~%d",
                     runAt, total,
-                    asgn.getAdded().size(),        asgn.getRemoved().size(),        asgn.getModified().size(),
-                    tt.getAdded().size(),           tt.getRemoved().size(),           tt.getModified().size(),
-                    grades.getAdded().size(),       grades.getRemoved().size(),       grades.getModified().size(),
-                    evals.getAdded().size(),        evals.getRemoved().size(),        evals.getModified().size(),
-                    schoolLife.getAdded().size(),   schoolLife.getRemoved().size(),   schoolLife.getModified().size());
+                    asgn.added().size(),        asgn.removed().size(),        asgn.modified().size(),
+                    tt.added().size(),           tt.removed().size(),           tt.modified().size(),
+                    grades.added().size(),       grades.removed().size(),       grades.modified().size(),
+                    evals.added().size(),        evals.removed().size(),        evals.modified().size(),
+                    schoolLife.added().size(),   schoolLife.removed().size(),   schoolLife.modified().size());
         } else {
             line = String.format(
                     "%s | NO_CHANGE  | assignments: +0 -0 ~0 | timetable: +0 -0 ~0"
@@ -214,79 +214,79 @@ public class DiffReporter {
 
         log.info("Diff result: CHANGES DETECTED");
         log.info("  Assignments   : +{} added  -{} removed  ~{} modified",
-                asgn.getAdded().size(), asgn.getRemoved().size(), asgn.getModified().size());
-        for (Assignment a : asgn.getAdded()) {
+                asgn.added().size(), asgn.removed().size(), asgn.modified().size());
+        for (Assignment a : asgn.added()) {
             log.info("    + NEW      : [{}] {} — due {}", a.getSubject(), truncate(a.getDescription(), 60), a.getDueDate());
         }
-        for (Assignment a : asgn.getRemoved()) {
+        for (Assignment a : asgn.removed()) {
             log.info("    - REMOVED  : [{}] due {}", a.getSubject(), a.getDueDate());
         }
-        for (Map.Entry<Assignment, List<FieldChange>> e : asgn.getModified().entrySet()) {
+        for (Map.Entry<Assignment, List<FieldChange>> e : asgn.modified().entrySet()) {
             log.info("    ~ MODIFIED : [{}] due {}", e.getKey().getSubject(), e.getKey().getDueDate());
             for (FieldChange fc : e.getValue()) {
-                log.info("        {} : {} → {}", fc.getFieldName(), fc.getOldValue(), fc.getNewValue());
+                log.info("        {} : {} → {}", fc.fieldName(), fc.oldValue(), fc.newValue());
             }
         }
 
         log.info("  Timetable     : +{} added  -{} removed  ~{} modified",
-                tt.getAdded().size(), tt.getRemoved().size(), tt.getModified().size());
-        for (TimetableEntry e : tt.getAdded()) {
+                tt.added().size(), tt.removed().size(), tt.modified().size());
+        for (TimetableEntry e : tt.added()) {
             log.info("    + NEW      : [{}] {} room:{}", e.getSubject(), e.getStartTime(), e.getRoom());
         }
-        for (TimetableEntry e : tt.getRemoved()) {
+        for (TimetableEntry e : tt.removed()) {
             log.info("    - REMOVED  : [{}] {}", e.getSubject(), e.getStartTime());
         }
-        for (Map.Entry<TimetableEntry, List<FieldChange>> e : tt.getModified().entrySet()) {
+        for (Map.Entry<TimetableEntry, List<FieldChange>> e : tt.modified().entrySet()) {
             log.info("    ~ MODIFIED : [{}] {}", e.getKey().getSubject(), e.getKey().getStartTime());
             for (FieldChange fc : e.getValue()) {
-                log.info("        {} : {} → {}", fc.getFieldName(), fc.getOldValue(), fc.getNewValue());
+                log.info("        {} : {} → {}", fc.fieldName(), fc.oldValue(), fc.newValue());
             }
         }
 
         log.info("  Grades        : +{} added  -{} removed  ~{} modified",
-                grades.getAdded().size(), grades.getRemoved().size(), grades.getModified().size());
-        for (Grade g : grades.getAdded()) {
+                grades.added().size(), grades.removed().size(), grades.modified().size());
+        for (Grade g : grades.added()) {
             log.info("    + NEW      : [{}] {} — {} (coeff:{}) period:{}",
                     g.getSubject(), g.getValue(), g.getDate(), g.getCoefficient(), g.getPeriodName());
         }
-        for (Grade g : grades.getRemoved()) {
+        for (Grade g : grades.removed()) {
             log.info("    - REMOVED  : [{}] {} ({})", g.getSubject(), g.getDate(), g.getPeriodName());
         }
-        for (Map.Entry<Grade, List<FieldChange>> e : grades.getModified().entrySet()) {
+        for (Map.Entry<Grade, List<FieldChange>> e : grades.modified().entrySet()) {
             log.info("    ~ MODIFIED : [{}] {}", e.getKey().getSubject(), e.getKey().getDate());
             for (FieldChange fc : e.getValue()) {
-                log.info("        {} : {} → {}", fc.getFieldName(), fc.getOldValue(), fc.getNewValue());
+                log.info("        {} : {} → {}", fc.fieldName(), fc.oldValue(), fc.newValue());
             }
         }
 
         log.info("  Evaluations   : +{} added  -{} removed  ~{} modified",
-                evals.getAdded().size(), evals.getRemoved().size(), evals.getModified().size());
-        for (CompetenceEvaluation ev : evals.getAdded()) {
+                evals.added().size(), evals.removed().size(), evals.modified().size());
+        for (CompetenceEvaluation ev : evals.added()) {
             log.info("    + NEW      : [{}] \"{}\" — {} period:{}",
                     ev.getSubject(), ev.getName(), ev.getDate(), ev.getPeriodName());
         }
-        for (CompetenceEvaluation ev : evals.getRemoved()) {
+        for (CompetenceEvaluation ev : evals.removed()) {
             log.info("    - REMOVED  : [{}] \"{}\" ({})", ev.getSubject(), ev.getName(), ev.getDate());
         }
-        for (Map.Entry<CompetenceEvaluation, List<FieldChange>> e : evals.getModified().entrySet()) {
+        for (Map.Entry<CompetenceEvaluation, List<FieldChange>> e : evals.modified().entrySet()) {
             log.info("    ~ MODIFIED : [{}] \"{}\" {}", e.getKey().getSubject(), e.getKey().getName(), e.getKey().getDate());
             for (FieldChange fc : e.getValue()) {
-                log.info("        {} : {} → {}", fc.getFieldName(), fc.getOldValue(), fc.getNewValue());
+                log.info("        {} : {} → {}", fc.fieldName(), fc.oldValue(), fc.newValue());
             }
         }
 
         log.info("  School Life   : +{} added  -{} removed  ~{} modified",
-                schoolLife.getAdded().size(), schoolLife.getRemoved().size(), schoolLife.getModified().size());
-        for (SchoolLifeEvent e : schoolLife.getAdded()) {
+                schoolLife.added().size(), schoolLife.removed().size(), schoolLife.modified().size());
+        for (SchoolLifeEvent e : schoolLife.added()) {
             log.info("    + NEW      : [{}] {} reasons:\"{}\"", e.getType(), e.getDate(), e.getReasons());
         }
-        for (SchoolLifeEvent e : schoolLife.getRemoved()) {
+        for (SchoolLifeEvent e : schoolLife.removed()) {
             log.info("    - REMOVED  : [{}] {}", e.getType(), e.getDate());
         }
-        for (Map.Entry<SchoolLifeEvent, List<FieldChange>> e : schoolLife.getModified().entrySet()) {
+        for (Map.Entry<SchoolLifeEvent, List<FieldChange>> e : schoolLife.modified().entrySet()) {
             log.info("    ~ MODIFIED : [{}] {}", e.getKey().getType(), e.getKey().getDate());
             for (FieldChange fc : e.getValue()) {
-                log.info("        {} : {} → {}", fc.getFieldName(), fc.getOldValue(), fc.getNewValue());
+                log.info("        {} : {} → {}", fc.fieldName(), fc.oldValue(), fc.newValue());
             }
         }
     }

@@ -41,7 +41,7 @@ public class EmailNotifier implements NotificationService {
             Message message = new MimeMessage(session);
             message.setFrom(new InternetAddress(config.getFrom()));
             message.setRecipient(Message.RecipientType.TO, new InternetAddress(config.getTo()));
-            message.setSubject(payload.getTitle());
+            message.setSubject(payload.title());
 
             // Build a simple HTML body
             MimeBodyPart htmlPart = new MimeBodyPart();
@@ -52,7 +52,7 @@ public class EmailNotifier implements NotificationService {
 
             log.debug("Sending email from {} to {}", config.getFrom(), config.getTo());
             Transport.send(message);
-            log.info("Email notification sent (subject: '{}')", payload.getTitle());
+            log.info("Email notification sent (subject: '{}')", payload.title());
 
         } catch (MessagingException e) {
             throw new NotificationException("Failed to send email: " + e.getMessage(), e);
@@ -83,8 +83,8 @@ public class EmailNotifier implements NotificationService {
                 </body>
                 </html>
                 """.formatted(
-                escapeHtml(payload.getTitle()),
-                escapeHtml(payload.getBody()));
+                escapeHtml(payload.title()),
+                escapeHtml(payload.body()));
     }
 
     private static String escapeHtml(String s) {
