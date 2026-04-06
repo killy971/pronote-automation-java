@@ -6,8 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -82,13 +82,15 @@ public class NtfyNotifier implements NotificationService {
     }
 
     /**
-     * URL-encodes the value if it contains non-ASCII characters.
-     * OkHttp rejects non-ASCII bytes in header values; ntfy accepts URL-encoded headers.
+     * RFC 2047-encodes the value if it contains non-ASCII characters.
+     * OkHttp rejects non-ASCII bytes in header values; ntfy accepts RFC 2047-encoded headers
+     * and decodes them correctly on the client side.
      */
     private static String encodeHeaderValue(String value) {
         for (int i = 0; i < value.length(); i++) {
             if (value.charAt(i) > 0x7F) {
-                return URLEncoder.encode(value, StandardCharsets.UTF_8);
+                String b64 = Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+                return "=?UTF-8?B?" + b64 + "?=";
             }
         }
         return value;
