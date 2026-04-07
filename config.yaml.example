@@ -80,3 +80,26 @@ assignmentView:
   enabled: true
   # Output directory for the generated index.html.
   outputDirectory: "./data/views/assignments"
+
+viewPublish:
+  # Publish generated view files to a local GitHub Pages repository clone.
+  # When enabled, timetable and assignment HTML files are copied into the repo,
+  # staged, committed (only when changes exist), and pushed after each views run.
+  enabled: false
+  # Absolute path to the local git clone of your GitHub Pages repository.
+  repoPath: "/home/pi/github-pages-repo"
+  # Subdirectory inside the repo where view files are written.
+  # Timetable files go to <repoPath>/<targetSubdir>/timetable/
+  # Assignment files go to <repoPath>/<targetSubdir>/assignments/
+  targetSubdir: "pronote"
+  # Commit message when changes are detected.
+  commitMessage: "Update Pronote views"
+  # Number of push retries after a non-fast-forward rejection.
+  # Each retry is preceded by `git pull --rebase` to incorporate remote commits.
+  pushRetries: 3
+  # Copy downloaded assignment attachments (G=1 uploaded files) into the repo so they
+  # are accessible via GitHub Pages. Files are placed at a path that preserves the relative
+  # hrefs already embedded in assignments/index.html — no link rewriting needed.
+  # They land at: <repoPath>/snapshots/assignments/attachments/<id>/<file>
+  # Existing attachment files are overwritten but never deleted (accumulate over time).
+  publishAttachments: true

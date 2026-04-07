@@ -31,11 +31,13 @@ import com.pronote.scraper.GradeScraper;
 import com.pronote.scraper.SchoolLifeScraper;
 import com.pronote.scraper.TimetableScraper;
 import com.pronote.views.AssignmentViewRenderer;
+import com.pronote.views.GitPublisher;
 import com.pronote.views.TimetableViewRenderer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -296,6 +298,32 @@ public class Main {
             new AssignmentViewRenderer(config.getAssignmentView()).render(assignments);
         }
 
+        // ---- 12. Publish view files to GitHub Pages repo (optional) -------
+        if (config.getViewPublish().isEnabled()) {
+            Map<String, Path> viewDirs = new LinkedHashMap<>();
+            Map<Path, Path> recursiveMirrors = new LinkedHashMap<>();
+            if (features.isTimetable() && config.getTimetableView().isEnabled()) {
+                viewDirs.put("timetable", Path.of(config.getTimetableView().getOutputDirectory()));
+            }
+            if (features.isAssignments() && config.getAssignmentView().isEnabled()) {
+                Path assignViewDir = Path.of(config.getAssignmentView().getOutputDirectory())
+                        .toAbsolutePath().normalize();
+                viewDirs.put("assignments", assignViewDir);
+                if (config.getViewPublish().isPublishAttachments()) {
+                    Path attachSource = dataDir.resolve("snapshots/assignments/attachments")
+                            .toAbsolutePath().normalize();
+                    // Preserve the relative path from the view dir to the attachments dir so
+                    // the hrefs already embedded in index.html remain valid in the repo.
+                    Path relFromView = assignViewDir.relativize(attachSource);
+                    Path destRelToRepo = Path.of(config.getViewPublish().getTargetSubdir())
+                            .resolve("assignments").resolve(relFromView).normalize();
+                    recursiveMirrors.put(attachSource, destRelToRepo);
+                }
+            }
+            log.info("Publishing view files to GitHub Pages repo...");
+            new GitPublisher().publish(viewDirs, recursiveMirrors, config.getViewPublish());
+        }
+
         log.info("Job completed successfully.");
     }
 
@@ -336,6 +364,30 @@ public class Main {
         }
 
         log.info("Views regenerated successfully.");
+
+        // Publish to GitHub Pages if configured
+        if (config.getViewPublish().isEnabled()) {
+            Map<String, Path> viewDirs = new LinkedHashMap<>();
+            Map<Path, Path> recursiveMirrors = new LinkedHashMap<>();
+            if (timetableViewEnabled) {
+                viewDirs.put("timetable", Path.of(config.getTimetableView().getOutputDirectory()));
+            }
+            if (assignmentViewEnabled) {
+                Path assignViewDir = Path.of(config.getAssignmentView().getOutputDirectory())
+                        .toAbsolutePath().normalize();
+                viewDirs.put("assignments", assignViewDir);
+                if (config.getViewPublish().isPublishAttachments()) {
+                    Path attachSource = dataDir.resolve("snapshots/assignments/attachments")
+                            .toAbsolutePath().normalize();
+                    Path relFromView = assignViewDir.relativize(attachSource);
+                    Path destRelToRepo = Path.of(config.getViewPublish().getTargetSubdir())
+                            .resolve("assignments").resolve(relFromView).normalize();
+                    recursiveMirrors.put(attachSource, destRelToRepo);
+                }
+            }
+            log.info("Publishing view files to GitHub Pages repo...");
+            new GitPublisher().publish(viewDirs, recursiveMirrors, config.getViewPublish());
+        }
     }
 
     // -------------------------------------------------------------------------

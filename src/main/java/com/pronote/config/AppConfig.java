@@ -16,6 +16,7 @@ public class AppConfig {
     private SubjectEnrichmentConfig subjectEnrichment = new SubjectEnrichmentConfig();
     private TimetableViewConfig timetableView = new TimetableViewConfig();
     private AssignmentViewConfig assignmentView = new AssignmentViewConfig();
+    private ViewPublishConfig viewPublish = new ViewPublishConfig();
 
     // -------------------------------------------------------------------------
     // Getters / setters (plain, for SnakeYAML)
@@ -44,6 +45,9 @@ public class AppConfig {
 
     public AssignmentViewConfig getAssignmentView() { return assignmentView; }
     public void setAssignmentView(AssignmentViewConfig assignmentView) { this.assignmentView = assignmentView; }
+
+    public ViewPublishConfig getViewPublish() { return viewPublish; }
+    public void setViewPublish(ViewPublishConfig viewPublish) { this.viewPublish = viewPublish; }
 
     // =========================================================================
     // Nested config classes
@@ -288,6 +292,52 @@ public class AppConfig {
 
         public String getOutputDirectory() { return outputDirectory; }
         public void setOutputDirectory(String outputDirectory) { this.outputDirectory = outputDirectory; }
+    }
+
+    /**
+     * Configuration for publishing generated view files to a local GitHub Pages repository.
+     * When enabled, files from the timetable and assignment view output directories are copied
+     * into {@code <repoPath>/<targetSubdir>/timetable/} and {@code .../assignments/} respectively,
+     * then staged, committed (only if changes exist), and pushed.
+     *
+     * <p>Concurrency safety: a file lock ({@code <repoPath>/.pronote-publish.lock}) prevents
+     * concurrent git operations from the same host. Push failures trigger a {@code git pull
+     * --rebase} and retry up to {@code pushRetries} times to handle non-fast-forward rejections.
+     */
+    public static class ViewPublishConfig {
+        private boolean enabled = false;
+        /** Absolute path to the local clone of the GitHub Pages repository. */
+        private String repoPath;
+        /** Subdirectory inside the repo where view files are written (e.g. "pronote"). */
+        private String targetSubdir = "pronote";
+        /** Commit message used when changes are detected. */
+        private String commitMessage = "Update Pronote views";
+        /** Number of push retries after a non-fast-forward rejection (each preceded by git pull --rebase). */
+        private int pushRetries = 3;
+        /**
+         * When true, the {@code data/snapshots/assignments/attachments/} tree is mirrored into the
+         * repo at a path that preserves the relative hrefs already embedded in the generated HTML,
+         * so attachment links work on GitHub Pages without any link rewriting.
+         */
+        private boolean publishAttachments = true;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getRepoPath() { return repoPath; }
+        public void setRepoPath(String repoPath) { this.repoPath = repoPath; }
+
+        public String getTargetSubdir() { return targetSubdir; }
+        public void setTargetSubdir(String targetSubdir) { this.targetSubdir = targetSubdir; }
+
+        public String getCommitMessage() { return commitMessage; }
+        public void setCommitMessage(String commitMessage) { this.commitMessage = commitMessage; }
+
+        public int getPushRetries() { return pushRetries; }
+        public void setPushRetries(int pushRetries) { this.pushRetries = pushRetries; }
+
+        public boolean isPublishAttachments() { return publishAttachments; }
+        public void setPublishAttachments(boolean publishAttachments) { this.publishAttachments = publishAttachments; }
     }
 
     /** A single subject-enrichment mapping rule. {@code teacher} is optional. */

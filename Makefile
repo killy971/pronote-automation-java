@@ -26,7 +26,7 @@ run: $(JAR)
 		echo "ERROR: $(CONFIG) not found. Copy config.yaml.example and fill in your credentials."; \
 		exit 1; \
 	fi
-	$(JAVA) -Xmx128m $(JVM_OPTS) -jar $(JAR) --config $(CONFIG)
+	$(JAVA) -Xmx128m $(JVM_OPTS) -jar $(JAR) --config $(CONFIG) $(ARGS)
 
 ## run-debug: run with DEBUG logging enabled
 run-debug: $(JAR)
