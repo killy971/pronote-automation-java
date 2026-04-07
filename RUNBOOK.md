@@ -211,6 +211,27 @@ cat /opt/pronote/data/lockout.json
 - Contact your school's IT department if the lockout persists.
 - Do **not** increase `maxLoginFailures` as a workaround.
 
+### Error alerts
+
+When `notifications.errorAlerts.enabled: true` (default), any pipeline failure sends a
+HIGH-priority ntfy alert naming the failing phase before the job exits. This requires
+`notifications.ntfy.enabled: true`.
+
+Phases covered by error alerts:
+- `authentification` — session reuse probe failed and full login also failed
+- `récupération des devoirs` — assignment fetch threw an exception
+- `emploi du temps` — timetable fetch threw an exception
+- `notes` — grade fetch threw an exception
+- `évaluations` — evaluation fetch threw an exception
+- `vie scolaire` — school-life fetch threw an exception
+
+To disable error alerts without disabling change notifications:
+```yaml
+notifications:
+  errorAlerts:
+    enabled: false
+```
+
 ### Notification failures
 
 **Symptom:** Log shows `Notification channel NtfyNotifier failed: ...` or email errors.

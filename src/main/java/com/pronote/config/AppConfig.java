@@ -115,12 +115,28 @@ public class AppConfig {
     public static class NotificationsConfig {
         private NtfyConfig ntfy = new NtfyConfig();
         private EmailConfig email = new EmailConfig();
+        private ErrorAlertsConfig errorAlerts = new ErrorAlertsConfig();
 
         public NtfyConfig getNtfy() { return ntfy; }
         public void setNtfy(NtfyConfig ntfy) { this.ntfy = ntfy; }
 
         public EmailConfig getEmail() { return email; }
         public void setEmail(EmailConfig email) { this.email = email; }
+
+        public ErrorAlertsConfig getErrorAlerts() { return errorAlerts; }
+        public void setErrorAlerts(ErrorAlertsConfig errorAlerts) { this.errorAlerts = errorAlerts; }
+    }
+
+    /**
+     * Controls whether pipeline errors (authentication failures, scraper errors, etc.)
+     * are sent as ntfy push notifications. Uses the {@code notifications.ntfy} channel;
+     * ntfy must also be enabled for alerts to be delivered.
+     */
+    public static class ErrorAlertsConfig {
+        private boolean enabled = true;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
     }
 
     /**

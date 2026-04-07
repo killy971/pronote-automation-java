@@ -148,6 +148,8 @@ notifications:
     enabled: true
     serverUrl: "https://ntfy.sh"
     topic: "your-secret-topic"
+  errorAlerts:
+    enabled: true   # send ntfy alert on auth/scraper failures (requires ntfy.enabled: true)
   email:
     enabled: false
     smtpHost: "smtp.gmail.com"
@@ -171,6 +173,19 @@ java -jar pronote-automation-1.0.0.jar --config config.yaml
 2. Subscribe to a topic — use a long, random string (e.g., `pronote-abc123xyz`)
 3. Set that topic in `config.yaml`
 4. No account required for the public `ntfy.sh` server
+
+### Error alerts
+
+When `notifications.errorAlerts.enabled` is `true` (the default), the application sends a
+HIGH-priority ntfy notification whenever a pipeline phase fails: authentication, session
+establishment, or data retrieval for any enabled feature. The alert title names the failing
+phase (e.g. `⚠ Pronote : échec — authentification`) and the body contains the error message.
+
+Error alerts use the same ntfy topic as change-detection notifications and require
+`notifications.ntfy.enabled: true`. They are controlled independently of change notifications
+so that you can silence change alerts without losing error visibility (or vice-versa).
+
+Set `errorAlerts.enabled: false` to disable.
 
 ### Gmail App Password
 

@@ -112,21 +112,42 @@ public class Main {
                 config.getSafety().getJitterMs());
         PronoteHttpClient httpClient = new PronoteHttpClient(rateLimiter);
         SessionStore sessionStore = new SessionStore(dataDir);
-        PronoteSession session = acquireSession(config, httpClient, sessionStore, lockoutGuard);
+        NotificationService errorNotifier = buildErrorNotifier(config);
+        PronoteSession session;
+        try {
+            session = acquireSession(config, httpClient, sessionStore, lockoutGuard);
+        } catch (RuntimeException e) {
+            sendErrorAlert(errorNotifier, "authentification", e.getMessage());
+            throw e;
+        }
 
         AppConfig.FeaturesConfig features = config.getFeatures();
         SubjectEnricher subjectEnricher = new SubjectEnricher(config.getSubjectEnrichment());
 
         // ---- 4. Fetch data (only for enabled types) -----------------------
-        log.info("Fetching assignments...");
         AssignmentScraper assignmentScraper = new AssignmentScraper(subjectEnricher);
-        List<Assignment> assignments = features.isAssignments()
-                ? assignmentScraper.fetch(session, httpClient, config) : List.of();
+        List<Assignment> assignments = List.of();
+        if (features.isAssignments()) {
+            log.info("Fetching assignments...");
+            try {
+                assignments = assignmentScraper.fetch(session, httpClient, config);
+            } catch (RuntimeException e) {
+                sendErrorAlert(errorNotifier, "récupération des devoirs", e.getMessage());
+                throw e;
+            }
+        }
 
-        log.info("Fetching timetable...");
         TimetableScraper timetableScraper = new TimetableScraper(subjectEnricher);
-        List<TimetableEntry> timetable = features.isTimetable()
-                ? timetableScraper.fetch(session, httpClient, config) : List.of();
+        List<TimetableEntry> timetable = List.of();
+        if (features.isTimetable()) {
+            log.info("Fetching timetable...");
+            try {
+                timetable = timetableScraper.fetch(session, httpClient, config);
+            } catch (RuntimeException e) {
+                sendErrorAlert(errorNotifier, "emploi du temps", e.getMessage());
+                throw e;
+            }
+        }
 
         // Re-enrich assignments using timetable teacher info.
         // The Pronote homework API does not include teacher data, so AssignmentScraper applies
@@ -139,7 +160,12 @@ public class Main {
         List<Grade> grades = List.of();
         if (features.isGrades()) {
             log.info("Fetching grades...");
-            grades = gradeScraper.fetch(session, httpClient, session.getPeriods());
+            try {
+                grades = gradeScraper.fetch(session, httpClient, session.getPeriods());
+            } catch (RuntimeException e) {
+                sendErrorAlert(errorNotifier, "notes", e.getMessage());
+                throw e;
+            }
         } else {
             log.debug("Grades feature disabled — skipping.");
         }
@@ -148,7 +174,12 @@ public class Main {
         List<CompetenceEvaluation> evaluations = List.of();
         if (features.isEvaluations()) {
             log.info("Fetching competence evaluations...");
-            evaluations = evaluationScraper.fetch(session, httpClient, session.getPeriods());
+            try {
+                evaluations = evaluationScraper.fetch(session, httpClient, session.getPeriods());
+            } catch (RuntimeException e) {
+                sendErrorAlert(errorNotifier, "évaluations", e.getMessage());
+                throw e;
+            }
         } else {
             log.debug("Evaluations feature disabled — skipping.");
         }
@@ -157,7 +188,12 @@ public class Main {
         List<SchoolLifeEvent> schoolLife = List.of();
         if (features.isSchoolLife()) {
             log.info("Fetching vie scolaire events...");
-            schoolLife = schoolLifeScraper.fetch(session, httpClient, session.getPeriods());
+            try {
+                schoolLife = schoolLifeScraper.fetch(session, httpClient, session.getPeriods());
+            } catch (RuntimeException e) {
+                sendErrorAlert(errorNotifier, "vie scolaire", e.getMessage());
+                throw e;
+            }
         } else {
             log.debug("School-life feature disabled — skipping.");
         }
@@ -437,6 +473,43 @@ public class Main {
     // -------------------------------------------------------------------------
     // Notification building
     // -------------------------------------------------------------------------
+
+    /**
+     * Returns an ntfy-based notifier for error alerts, or {@code null} if error alerts or ntfy
+     * are disabled. Dry-run mode is intentionally ignored here: error alerts are always sent
+     * in dry-run (they reflect real failures, not data changes).
+     */
+    private static NotificationService buildErrorNotifier(AppConfig config) {
+        AppConfig.NotificationsConfig nc = config.getNotifications();
+        if (!nc.getErrorAlerts().isEnabled() || !nc.getNtfy().isEnabled()) {
+            return null;
+        }
+        return new NtfyNotifier(nc.getNtfy());
+    }
+
+    /**
+     * Sends a HIGH-priority ntfy alert describing a pipeline failure. Swallows any delivery
+     * error so that the original exception continues to propagate normally.
+     *
+     * @param notifier the error notifier; if {@code null} the call is a no-op
+     * @param phase    short human-readable name of the phase that failed (e.g. "authentification")
+     * @param detail   the error message; truncated if too long
+     */
+    private static void sendErrorAlert(NotificationService notifier, String phase, String detail) {
+        if (notifier == null) return;
+        String body = detail != null ? truncate(detail, 200) : "(aucun détail)";
+        NotificationPayload payload = new NotificationPayload(
+                "⚠ Pronote : échec — " + phase,
+                body,
+                NotificationPayload.Priority.HIGH,
+                List.of("warning", "pronote"));
+        try {
+            notifier.send(payload);
+            log.info("Error alert sent for phase '{}'", phase);
+        } catch (NotificationService.NotificationException e) {
+            log.warn("Failed to deliver error alert for phase '{}': {}", phase, e.getMessage());
+        }
+    }
 
     private static NotificationService buildNotifier(AppConfig config, boolean dryRun) {
         if (dryRun) {
