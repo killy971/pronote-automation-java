@@ -129,7 +129,8 @@ public class TimetableViewRenderer {
         if (entries.isEmpty()) {
             metaLine = "Pas de cours";
         } else {
-            List<TimetableEntry> sorted = TimetableHtmlGenerator.filterRoomChanges(entries).stream()
+            List<TimetableEntry> sorted = TimetableHtmlGenerator.collapseSlots(entries).stream()
+                .map(TimetableHtmlGenerator.MergedEntry::entry)
                 .sorted(Comparator.comparing(TimetableEntry::getStartTime))
                 .toList();
 

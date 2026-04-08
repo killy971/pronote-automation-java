@@ -4,13 +4,17 @@ import com.pronote.domain.EntryStatus;
 import com.pronote.domain.TimetableEntry;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Generates a self-contained HTML5 page for a single day's timetable.
@@ -80,47 +84,72 @@ public class TimetableHtmlGenerator {
     // -------------------------------------------------------------------------
 
     /**
-     * Filters out the cancelled half of a room-change pair.
-     *
-     * <p>A room change produces two entries with the same start time, subject, and teacher:
-     * one CANCELLED (old room) and one active (new room). In that specific case the cancelled
-     * entry is redundant — only the active entry is kept. Any standalone cancellation (no
-     * matching active sibling) is left untouched.
+     * Pairs an entry to render with an optional cancelled predecessor at the same time slot.
+     * The {@code cancelledSibling} is non-null only when a cancelled entry at the same start time
+     * has a <em>different</em> subject — indicating a true class replacement. Same-subject pairs
+     * (e.g. "cours maintenu" resolutions) carry a null sibling since no annotation is needed.
      */
-    static List<TimetableEntry> filterRoomChanges(List<TimetableEntry> entries) {
-        List<TimetableEntry> result = new ArrayList<>(entries);
-        for (TimetableEntry cancelled : entries) {
-            if (cancelled.getStatus() != EntryStatus.CANCELLED
-                    && cancelled.getStatus() != EntryStatus.EXEMPTED) continue;
+    record MergedEntry(TimetableEntry entry, TimetableEntry cancelledSibling) {}
 
-            boolean hasActiveSibling = entries.stream().anyMatch(other ->
-                other != cancelled
-                && other.getStatus() != EntryStatus.CANCELLED
-                && other.getStatus() != EntryStatus.EXEMPTED
-                && Objects.equals(other.getStartTime(), cancelled.getStartTime())
-                && Objects.equals(other.getSubject(), cancelled.getSubject())
-                && Objects.equals(other.getTeacher(), cancelled.getTeacher())
-                && !Objects.equals(other.getRoom(), cancelled.getRoom())
-            );
+    /**
+     * Collapses time-slot conflicts into single {@link MergedEntry} objects.
+     *
+     * <p>When multiple entries share the same start time, Pronote typically sends:
+     * <ul>
+     *   <li>a CANCELLED entry (the original/old slot), and</li>
+     *   <li>an active entry (the replacement or the maintained class).</li>
+     * </ul>
+     * This method hides cancelled entries whenever at least one active sibling exists at the
+     * same start time. If the cancelled sibling has a different subject (real replacement),
+     * it is carried as {@code cancelledSibling} for optional display in the card.
+     * Standalone cancellations (no active sibling) are kept as-is.
+     */
+    static List<MergedEntry> collapseSlots(List<TimetableEntry> entries) {
+        Map<LocalDateTime, List<TimetableEntry>> byStart = entries.stream()
+            .collect(Collectors.groupingBy(TimetableEntry::getStartTime, LinkedHashMap::new, Collectors.toList()));
 
-            if (hasActiveSibling) result.remove(cancelled);
+        List<MergedEntry> result = new ArrayList<>();
+        for (List<TimetableEntry> group : byStart.values()) {
+            List<TimetableEntry> active = group.stream()
+                .filter(e -> e.getStatus() != EntryStatus.CANCELLED
+                          && e.getStatus() != EntryStatus.EXEMPTED)
+                .toList();
+            List<TimetableEntry> cancelled = group.stream()
+                .filter(e -> e.getStatus() == EntryStatus.CANCELLED
+                          || e.getStatus() == EntryStatus.EXEMPTED)
+                .toList();
+
+            if (active.isEmpty()) {
+                // Standalone cancellations — show as-is
+                cancelled.forEach(e -> result.add(new MergedEntry(e, null)));
+            } else {
+                for (TimetableEntry a : active) {
+                    // Attach a cancelled sibling only when subjects differ (real replacement).
+                    // Same-subject pairs (cours maintenu) need no annotation.
+                    TimetableEntry sibling = cancelled.stream()
+                        .filter(c -> !Objects.equals(c.getSubject(), a.getSubject()))
+                        .findFirst()
+                        .orElse(null);
+                    result.add(new MergedEntry(a, sibling));
+                }
+            }
         }
         return result;
     }
 
     private String renderSchedule(List<TimetableEntry> entries) {
-        List<TimetableEntry> sorted = filterRoomChanges(entries).stream()
-            .sorted(Comparator.comparing(TimetableEntry::getStartTime))
+        List<MergedEntry> sorted = collapseSlots(entries).stream()
+            .sorted(Comparator.comparing(me -> me.entry().getStartTime()))
             .toList();
 
         StringBuilder sb = new StringBuilder("<main class=\"schedule\">\n");
 
         // Cursor tracks the next hour slot we should render.
         // Initialised to the first lesson's start hour.
-        int cursor = sorted.get(0).getStartTime().getHour();
+        int cursor = sorted.get(0).entry().getStartTime().getHour();
 
-        for (TimetableEntry entry : sorted) {
-            int lessonHour = entry.getStartTime().getHour();
+        for (MergedEntry me : sorted) {
+            int lessonHour = me.entry().getStartTime().getHour();
 
             // Fill any gap hours between cursor and this lesson
             while (cursor < lessonHour) {
@@ -128,14 +157,14 @@ public class TimetableHtmlGenerator {
                 cursor++;
             }
 
-            sb.append(renderLessonSlot(entry));
+            sb.append(renderLessonSlot(me));
 
             // Advance cursor to the hour when this lesson ends (ceiling to whole hour).
             // Use max(cursor, endHour) — not cursor+1 — so that same-start-hour lessons
             // (e.g. two entries at 10:00) do not incorrectly skip the next gap hour.
             // The fallback to lessonHour+1 only triggers for zero-duration entries.
-            int endHour = entry.getEndTime().getHour();
-            if (entry.getEndTime().getMinute() > 0) endHour++;
+            int endHour = me.entry().getEndTime().getHour();
+            if (me.entry().getEndTime().getMinute() > 0) endHour++;
             cursor = Math.max(cursor, endHour);
             if (cursor <= lessonHour) cursor = lessonHour + 1;
         }
@@ -144,7 +173,8 @@ public class TimetableHtmlGenerator {
         return sb.toString();
     }
 
-    private String renderLessonSlot(TimetableEntry e) {
+    private String renderLessonSlot(MergedEntry me) {
+        TimetableEntry e = me.entry();
         String color    = ACCENT_COLORS[Math.abs(e.getSubject().hashCode()) % ACCENT_COLORS.length];
         boolean cancelled = e.getStatus() == EntryStatus.CANCELLED
                          || e.getStatus() == EntryStatus.EXEMPTED;
@@ -180,6 +210,24 @@ public class TimetableHtmlGenerator {
         if (!badges.isEmpty()) {
             card.append("        <div class=\"lesson__footer\">\n");
             for (String b : badges) card.append("          ").append(b).append("\n");
+            card.append("        </div>\n");
+        }
+
+        // "Replaces" note — only shown when a different-subject cancelled entry was collapsed
+        TimetableEntry sibling = me.cancelledSibling();
+        if (sibling != null) {
+            String siblingSubject = sibling.getEnrichedSubject() != null && !sibling.getEnrichedSubject().isBlank()
+                ? sibling.getEnrichedSubject() : sibling.getSubject();
+            StringBuilder detail = new StringBuilder(esc(siblingSubject));
+            if (sibling.getTeacher() != null && !sibling.getTeacher().isBlank()) {
+                detail.append(" \u00b7 ").append(esc(sibling.getTeacher()));
+            }
+            if (sibling.getRoom() != null && !sibling.getRoom().isBlank()) {
+                detail.append(" \u00b7 ").append(esc(sibling.getRoom()));
+            }
+            card.append("        <div class=\"lesson__replaced\">\n");
+            card.append("          <span class=\"lesson__replaced-label\">Remplace\u00a0:</span>\n");
+            card.append("          <span class=\"lesson__replaced-detail\">").append(detail).append("</span>\n");
             card.append("        </div>\n");
         }
 
@@ -538,6 +586,29 @@ public class TimetableHtmlGenerator {
           font-size: 0.75rem;
           font-weight: 600;
           color: var(--bdg-cancel-fg);
+        }
+
+        /* ----- Replaced-class note (class replacement inside a lesson card) ----- */
+        .lesson__replaced {
+          display: flex;
+          align-items: baseline;
+          flex-wrap: wrap;
+          gap: 0.25rem;
+          margin-top: 0.375rem;
+          padding-top: 0.375rem;
+          border-top: 1px solid var(--border);
+          font-size: 0.725rem;
+          color: var(--text-3);
+        }
+
+        .lesson__replaced-label {
+          font-weight: 600;
+          flex-shrink: 0;
+        }
+
+        .lesson__replaced-detail {
+          text-decoration: line-through;
+          text-decoration-color: var(--text-3);
         }
 
         /* ----- Footer ----- */
