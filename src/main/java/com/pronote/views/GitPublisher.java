@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -62,21 +63,24 @@ public class GitPublisher {
     /**
      * Publishes view files and attachment mirrors to the configured GitHub Pages repo.
      *
-     * @param viewDirs        key = subdirectory name under {@code <repoPath>/<targetSubdir>/};
-     *                        value = source directory (flat copy, stale files removed)
+     * @param viewDirs         key = subdirectory name under {@code <repoPath>/<targetSubdir>/};
+     *                         value = source directory (flat copy, stale files removed)
      * @param recursiveMirrors key = absolute source directory;
      *                         value = destination path <em>relative to the repo root</em>
      *                         (recursive copy, no deletions)
-     * @param config          publish configuration
+     * @param rootFiles        filename → HTML content; each entry is written directly to
+     *                         {@code <repoPath>/<targetSubdir>/} (e.g. the portal index.html)
+     * @param config           publish configuration
      */
     public void publish(Map<String, Path> viewDirs,
                         Map<Path, Path> recursiveMirrors,
+                        Map<String, String> rootFiles,
                         ViewPublishConfig config) {
         if (!config.isEnabled()) {
             log.debug("View publishing disabled — skipping.");
             return;
         }
-        if (viewDirs.isEmpty() && recursiveMirrors.isEmpty()) {
+        if (viewDirs.isEmpty() && recursiveMirrors.isEmpty() && rootFiles.isEmpty()) {
             log.debug("Nothing to publish — skipping.");
             return;
         }
@@ -93,7 +97,7 @@ public class GitPublisher {
              FileLock ignored = channel.lock()) {
 
             log.info("Acquired publish lock ({})", lockFile);
-            doPublish(viewDirs, recursiveMirrors, config, repoPath);
+            doPublish(viewDirs, recursiveMirrors, rootFiles, config, repoPath);
 
         } catch (IOException e) {
             throw new GitPublisherException("Failed to acquire publish lock at " + lockFile, e);
@@ -104,22 +108,37 @@ public class GitPublisher {
 
     private void doPublish(Map<String, Path> viewDirs,
                            Map<Path, Path> recursiveMirrors,
+                           Map<String, String> rootFiles,
                            ViewPublishConfig config,
                            Path repoPath) {
 
-        // 1. Flat-copy each view directory into <targetSubdir>/<name>/
+        // 1. Write root-level files directly into <targetSubdir>/
+        Path targetSubdirPath = repoPath.resolve(config.getTargetSubdir());
+        for (Map.Entry<String, String> entry : rootFiles.entrySet()) {
+            try {
+                Files.createDirectories(targetSubdirPath);
+                Files.writeString(targetSubdirPath.resolve(entry.getKey()),
+                        entry.getValue(), StandardCharsets.UTF_8);
+                log.debug("Wrote root file: {}/{}", config.getTargetSubdir(), entry.getKey());
+            } catch (IOException e) {
+                throw new GitPublisherException(
+                        "Failed to write root file " + entry.getKey() + " to " + targetSubdirPath, e);
+            }
+        }
+
+        // 2. Flat-copy each view directory into <targetSubdir>/<name>/
         for (Map.Entry<String, Path> entry : viewDirs.entrySet()) {
             Path targetDir = repoPath.resolve(config.getTargetSubdir()).resolve(entry.getKey());
             copyFlat(entry.getValue(), targetDir, entry.getKey());
         }
 
-        // 2. Recursively mirror attachment directories
+        // 3. Recursively mirror attachment directories
         for (Map.Entry<Path, Path> entry : recursiveMirrors.entrySet()) {
             Path destAbsolute = repoPath.resolve(entry.getValue());
             copyRecursive(entry.getKey(), destAbsolute);
         }
 
-        // 3. Stage everything: targetSubdir + each recursive mirror root
+        // 4. Stage everything: targetSubdir + each recursive mirror root
         List<String> gitAddArgs = new ArrayList<>();
         gitAddArgs.add("git");
         gitAddArgs.add("add");
@@ -130,7 +149,7 @@ public class GitPublisher {
         runGit(repoPath, gitAddArgs.toArray(new String[0]));
         log.info("git add: {}", gitAddArgs.subList(2, gitAddArgs.size()));
 
-        // 4. Check whether anything was staged
+        // 5. Check whether anything was staged
         List<String> diffArgs = new ArrayList<>();
         diffArgs.add("git");
         diffArgs.add("diff");
@@ -148,11 +167,11 @@ public class GitPublisher {
         }
         log.info("{} file(s) changed", staged.size());
 
-        // 5. Commit
+        // 6. Commit
         runGit(repoPath, "git", "commit", "-m", config.getCommitMessage());
         log.info("git commit: {}", config.getCommitMessage());
 
-        // 6. Push with pull-rebase retry on rejection
+        // 7. Push with pull-rebase retry on rejection
         pushWithRetry(repoPath, config.getPushRetries());
     }
 

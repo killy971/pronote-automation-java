@@ -16,6 +16,8 @@ public class AppConfig {
     private SubjectEnrichmentConfig subjectEnrichment = new SubjectEnrichmentConfig();
     private TimetableViewConfig timetableView = new TimetableViewConfig();
     private AssignmentViewConfig assignmentView = new AssignmentViewConfig();
+    private EvaluationViewConfig evaluationView = new EvaluationViewConfig();
+    private SchoolLifeViewConfig schoolLifeView = new SchoolLifeViewConfig();
     private ViewPublishConfig viewPublish = new ViewPublishConfig();
 
     // -------------------------------------------------------------------------
@@ -45,6 +47,12 @@ public class AppConfig {
 
     public AssignmentViewConfig getAssignmentView() { return assignmentView; }
     public void setAssignmentView(AssignmentViewConfig assignmentView) { this.assignmentView = assignmentView; }
+
+    public EvaluationViewConfig getEvaluationView() { return evaluationView; }
+    public void setEvaluationView(EvaluationViewConfig evaluationView) { this.evaluationView = evaluationView; }
+
+    public SchoolLifeViewConfig getSchoolLifeView() { return schoolLifeView; }
+    public void setSchoolLifeView(SchoolLifeViewConfig schoolLifeView) { this.schoolLifeView = schoolLifeView; }
 
     public ViewPublishConfig getViewPublish() { return viewPublish; }
     public void setViewPublish(ViewPublishConfig viewPublish) { this.viewPublish = viewPublish; }
@@ -338,6 +346,50 @@ public class AppConfig {
 
         public boolean isPublishAttachments() { return publishAttachments; }
         public void setPublishAttachments(boolean publishAttachments) { this.publishAttachments = publishAttachments; }
+    }
+
+    /**
+     * Configuration for generating the static HTML competence-evaluation view.
+     * When enabled, a single {@code index.html} is written listing the most recent evaluations
+     * (newest first, up to {@code maxEntries}) after each successful evaluations fetch.
+     */
+    public static class EvaluationViewConfig {
+        private boolean enabled = true;
+        /** Output directory for the generated HTML file. */
+        private String outputDirectory = "./data/views/evaluations";
+        /** Maximum number of evaluations to display (newest first). */
+        private int maxEntries = 30;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getOutputDirectory() { return outputDirectory; }
+        public void setOutputDirectory(String outputDirectory) { this.outputDirectory = outputDirectory; }
+
+        public int getMaxEntries() { return maxEntries; }
+        public void setMaxEntries(int maxEntries) { this.maxEntries = maxEntries; }
+    }
+
+    /**
+     * Configuration for generating the static HTML school-life view.
+     * When enabled, a single {@code index.html} is written listing the most recent school-life
+     * events (newest first, up to {@code maxEntries}) after each successful school-life fetch.
+     */
+    public static class SchoolLifeViewConfig {
+        private boolean enabled = true;
+        /** Output directory for the generated HTML file. */
+        private String outputDirectory = "./data/views/school-life";
+        /** Maximum number of events to display (newest first). */
+        private int maxEntries = 10;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getOutputDirectory() { return outputDirectory; }
+        public void setOutputDirectory(String outputDirectory) { this.outputDirectory = outputDirectory; }
+
+        public int getMaxEntries() { return maxEntries; }
+        public void setMaxEntries(int maxEntries) { this.maxEntries = maxEntries; }
     }
 
     /** A single subject-enrichment mapping rule. {@code teacher} is optional. */

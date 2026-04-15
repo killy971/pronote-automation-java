@@ -105,6 +105,7 @@ public class TimetableViewRenderer {
             + "</head>\n"
             + "<body>\n"
             + "  <div class=\"page\">\n"
+            + "    <nav class=\"nav\"><a class=\"nav__back\" href=\"../index.html\">\u2190\u00a0Pronote</a></nav>\n"
             + "    <header class=\"index-header\">\n"
             + "      <h1 class=\"index-header__title\">Emploi du temps</h1>\n"
             + "      <p class=\"index-header__subtitle\">Mis \u00e0 jour le " + generatedAt + "</p>\n"

@@ -82,6 +82,7 @@ public class AssignmentHtmlGenerator {
             + "</head>\n"
             + "<body>\n"
             + "  <div class=\"page\">\n"
+            + "    <nav class=\"nav\"><a class=\"nav__back\" href=\"../index.html\">\u2190\u00a0Pronote</a></nav>\n"
             + "    <header class=\"page-header\">\n"
             + "      <h1 class=\"page-header__title\">Devoirs \u00e0 venir</h1>\n"
             + "      <p class=\"page-header__subtitle\">Mis \u00e0 jour le " + generatedAt + "</p>\n"
@@ -291,6 +292,18 @@ public class AssignmentHtmlGenerator {
           max-width: 640px;
           margin: 0 auto;
         }
+
+        /* ----- Navigation back link ----- */
+        .nav { margin-bottom: 0.5rem; }
+
+        .nav__back {
+          display: inline-flex;
+          align-items: center;
+          font-size: 0.875rem;
+          color: var(--text-2);
+          text-decoration: none;
+        }
+        .nav__back:hover { color: var(--text-1); }
 
         /* ----- Page header ----- */
         .page-header { padding: 1.5rem 0 1.25rem; }

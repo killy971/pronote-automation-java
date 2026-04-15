@@ -31,11 +31,18 @@ import com.pronote.scraper.GradeScraper;
 import com.pronote.scraper.SchoolLifeScraper;
 import com.pronote.scraper.TimetableScraper;
 import com.pronote.views.AssignmentViewRenderer;
+import com.pronote.views.EvaluationViewRenderer;
 import com.pronote.views.GitPublisher;
+import com.pronote.views.PortalIndexHtmlGenerator;
+import com.pronote.views.SchoolLifeViewRenderer;
 import com.pronote.views.TimetableViewRenderer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.time.DayOfWeek;
@@ -298,12 +305,30 @@ public class Main {
             new AssignmentViewRenderer(config.getAssignmentView()).render(assignments);
         }
 
-        // ---- 12. Publish view files to GitHub Pages repo (optional) -------
+        // ---- 12. Generate static HTML evaluation view --------------------
+        if (features.isEvaluations() && config.getEvaluationView().isEnabled()) {
+            log.info("Generating evaluation HTML view...");
+            new EvaluationViewRenderer(config.getEvaluationView()).render(evaluations);
+        }
+
+        // ---- 13. Generate static HTML school-life view -------------------
+        if (features.isSchoolLife() && config.getSchoolLifeView().isEnabled()) {
+            log.info("Generating school-life HTML view...");
+            new SchoolLifeViewRenderer(config.getSchoolLifeView()).render(schoolLife);
+        }
+
+        // ---- 14. Generate portal index -----------------------------------
+        String portalHtml = new PortalIndexHtmlGenerator()
+                .generate(buildPortalSections(config, features));
+        writePortalIndex(portalHtml);
+
+        // ---- 15. Publish view files to GitHub Pages repo (optional) -------
         if (config.getViewPublish().isEnabled()) {
             Map<String, Path> viewDirs = new LinkedHashMap<>();
             Map<Path, Path> recursiveMirrors = new LinkedHashMap<>();
             if (features.isTimetable() && config.getTimetableView().isEnabled()) {
-                viewDirs.put("timetable", Path.of(config.getTimetableView().getOutputDirectory()));
+                viewDirs.put("timetable", Path.of(config.getTimetableView().getOutputDirectory())
+                        .toAbsolutePath().normalize());
             }
             if (features.isAssignments() && config.getAssignmentView().isEnabled()) {
                 Path assignViewDir = Path.of(config.getAssignmentView().getOutputDirectory())
@@ -312,16 +337,23 @@ public class Main {
                 if (config.getViewPublish().isPublishAttachments()) {
                     Path attachSource = dataDir.resolve("snapshots/assignments/attachments")
                             .toAbsolutePath().normalize();
-                    // Preserve the relative path from the view dir to the attachments dir so
-                    // the hrefs already embedded in index.html remain valid in the repo.
                     Path relFromView = assignViewDir.relativize(attachSource);
                     Path destRelToRepo = Path.of(config.getViewPublish().getTargetSubdir())
                             .resolve("assignments").resolve(relFromView).normalize();
                     recursiveMirrors.put(attachSource, destRelToRepo);
                 }
             }
+            if (features.isEvaluations() && config.getEvaluationView().isEnabled()) {
+                viewDirs.put("evaluations", Path.of(config.getEvaluationView().getOutputDirectory())
+                        .toAbsolutePath().normalize());
+            }
+            if (features.isSchoolLife() && config.getSchoolLifeView().isEnabled()) {
+                viewDirs.put("school-life", Path.of(config.getSchoolLifeView().getOutputDirectory())
+                        .toAbsolutePath().normalize());
+            }
             log.info("Publishing view files to GitHub Pages repo...");
-            new GitPublisher().publish(viewDirs, recursiveMirrors, config.getViewPublish());
+            new GitPublisher().publish(viewDirs, recursiveMirrors,
+                    Map.of("index.html", portalHtml), config.getViewPublish());
         }
 
         log.info("Job completed successfully.");
@@ -332,9 +364,13 @@ public class Main {
     // -------------------------------------------------------------------------
 
     private static void runViews(AppConfig config, Path dataDir) {
-        boolean timetableViewEnabled = config.getTimetableView().isEnabled();
-        boolean assignmentViewEnabled = config.getAssignmentView().isEnabled();
-        if (!timetableViewEnabled && !assignmentViewEnabled) {
+        AppConfig.FeaturesConfig features = config.getFeatures();
+        boolean timetableViewEnabled   = config.getTimetableView().isEnabled();
+        boolean assignmentViewEnabled  = config.getAssignmentView().isEnabled();
+        boolean evaluationViewEnabled  = config.getEvaluationView().isEnabled();
+        boolean schoolLifeViewEnabled  = config.getSchoolLifeView().isEnabled();
+        if (!timetableViewEnabled && !assignmentViewEnabled
+                && !evaluationViewEnabled && !schoolLifeViewEnabled) {
             log.info("All views disabled in config — nothing to do.");
             return;
         }
@@ -342,7 +378,8 @@ public class Main {
         SnapshotStore snapshotStore = new SnapshotStore(dataDir, config.getData().getArchiveRetainDays());
 
         if (timetableViewEnabled) {
-            Optional<List<TimetableEntry>> timetable = snapshotStore.loadLatest("timetable", new TypeReference<>() {});
+            Optional<List<TimetableEntry>> timetable =
+                    snapshotStore.loadLatest("timetable", new TypeReference<>() {});
             if (timetable.isEmpty()) {
                 throw new RuntimeException("No timetable snapshot found at "
                         + dataDir.resolve("snapshots/timetable/latest.json")
@@ -353,7 +390,8 @@ public class Main {
         }
 
         if (assignmentViewEnabled) {
-            Optional<List<Assignment>> assignments = snapshotStore.loadLatest("assignments", new TypeReference<>() {});
+            Optional<List<Assignment>> assignments =
+                    snapshotStore.loadLatest("assignments", new TypeReference<>() {});
             if (assignments.isEmpty()) {
                 throw new RuntimeException("No assignments snapshot found at "
                         + dataDir.resolve("snapshots/assignments/latest.json")
@@ -363,6 +401,33 @@ public class Main {
             new AssignmentViewRenderer(config.getAssignmentView()).render(assignments.get());
         }
 
+        if (evaluationViewEnabled) {
+            Optional<List<CompetenceEvaluation>> evaluations =
+                    snapshotStore.loadLatest("evaluations", new TypeReference<>() {});
+            if (evaluations.isEmpty()) {
+                log.warn("No evaluations snapshot found — skipping evaluation view regeneration.");
+            } else {
+                log.info("Regenerating evaluation view from snapshot ({} entries)...", evaluations.get().size());
+                new EvaluationViewRenderer(config.getEvaluationView()).render(evaluations.get());
+            }
+        }
+
+        if (schoolLifeViewEnabled) {
+            Optional<List<SchoolLifeEvent>> schoolLife =
+                    snapshotStore.loadLatest("school-life", new TypeReference<>() {});
+            if (schoolLife.isEmpty()) {
+                log.warn("No school-life snapshot found — skipping school-life view regeneration.");
+            } else {
+                log.info("Regenerating school-life view from snapshot ({} entries)...", schoolLife.get().size());
+                new SchoolLifeViewRenderer(config.getSchoolLifeView()).render(schoolLife.get());
+            }
+        }
+
+        // Portal index (always regenerated; reflects currently enabled sections)
+        String portalHtml = new PortalIndexHtmlGenerator()
+                .generate(buildPortalSections(config, features));
+        writePortalIndex(portalHtml);
+
         log.info("Views regenerated successfully.");
 
         // Publish to GitHub Pages if configured
@@ -370,7 +435,8 @@ public class Main {
             Map<String, Path> viewDirs = new LinkedHashMap<>();
             Map<Path, Path> recursiveMirrors = new LinkedHashMap<>();
             if (timetableViewEnabled) {
-                viewDirs.put("timetable", Path.of(config.getTimetableView().getOutputDirectory()));
+                viewDirs.put("timetable", Path.of(config.getTimetableView().getOutputDirectory())
+                        .toAbsolutePath().normalize());
             }
             if (assignmentViewEnabled) {
                 Path assignViewDir = Path.of(config.getAssignmentView().getOutputDirectory())
@@ -385,8 +451,17 @@ public class Main {
                     recursiveMirrors.put(attachSource, destRelToRepo);
                 }
             }
+            if (evaluationViewEnabled) {
+                viewDirs.put("evaluations", Path.of(config.getEvaluationView().getOutputDirectory())
+                        .toAbsolutePath().normalize());
+            }
+            if (schoolLifeViewEnabled) {
+                viewDirs.put("school-life", Path.of(config.getSchoolLifeView().getOutputDirectory())
+                        .toAbsolutePath().normalize());
+            }
             log.info("Publishing view files to GitHub Pages repo...");
-            new GitPublisher().publish(viewDirs, recursiveMirrors, config.getViewPublish());
+            new GitPublisher().publish(viewDirs, recursiveMirrors,
+                    Map.of("index.html", portalHtml), config.getViewPublish());
         }
     }
 
@@ -486,6 +561,18 @@ public class Main {
             log.info("Regenerating assignment HTML view...");
             new AssignmentViewRenderer(config.getAssignmentView()).render(assignments);
         }
+
+        if (features.isEvaluations() && config.getEvaluationView().isEnabled() && !evaluations.isEmpty()) {
+            log.info("Regenerating evaluation HTML view...");
+            new EvaluationViewRenderer(config.getEvaluationView()).render(evaluations);
+        }
+
+        if (features.isSchoolLife() && config.getSchoolLifeView().isEnabled() && !schoolLife.isEmpty()) {
+            log.info("Regenerating school-life HTML view...");
+            new SchoolLifeViewRenderer(config.getSchoolLifeView()).render(schoolLife);
+        }
+
+        writePortalIndex(new PortalIndexHtmlGenerator().generate(buildPortalSections(config, features)));
 
         log.info("Offline diff completed.");
     }
@@ -1064,5 +1151,45 @@ public class Main {
 
     private static String truncate(String s, int maxLen) {
         return s.length() <= maxLen ? s : s.substring(0, maxLen) + "…";
+    }
+
+    // -------------------------------------------------------------------------
+    // Portal index helpers
+    // -------------------------------------------------------------------------
+
+    private static List<PortalIndexHtmlGenerator.Section> buildPortalSections(
+            AppConfig config, AppConfig.FeaturesConfig features) {
+        List<PortalIndexHtmlGenerator.Section> sections = new ArrayList<>();
+        if (features.isTimetable() && config.getTimetableView().isEnabled()) {
+            sections.add(new PortalIndexHtmlGenerator.Section(
+                    "\uD83D\uDCC5", "Emploi du temps", "Planning des prochains jours",
+                    "timetable/index.html"));
+        }
+        if (features.isAssignments() && config.getAssignmentView().isEnabled()) {
+            sections.add(new PortalIndexHtmlGenerator.Section(
+                    "\uD83D\uDCDD", "Devoirs", "Travail \u00e0 venir",
+                    "assignments/index.html"));
+        }
+        if (features.isEvaluations() && config.getEvaluationView().isEnabled()) {
+            sections.add(new PortalIndexHtmlGenerator.Section(
+                    "\uD83D\uDCCA", "\u00c9valuations", "Comp\u00e9tences \u00e9valu\u00e9es",
+                    "evaluations/index.html"));
+        }
+        if (features.isSchoolLife() && config.getSchoolLifeView().isEnabled()) {
+            sections.add(new PortalIndexHtmlGenerator.Section(
+                    "\uD83C\uDFEB", "Vie scolaire", "Absences, retards et observations",
+                    "school-life/index.html"));
+        }
+        return sections;
+    }
+
+    private static void writePortalIndex(String html) {
+        try {
+            Path dir = Path.of("./data/views");
+            Files.createDirectories(dir);
+            Files.writeString(dir.resolve("index.html"), html, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to write portal index to ./data/views/index.html", e);
+        }
     }
 }
