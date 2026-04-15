@@ -307,8 +307,10 @@ public class Main {
 
         // ---- 12. Generate static HTML evaluation view --------------------
         if (features.isEvaluations() && config.getEvaluationView().isEnabled()) {
-            log.info("Generating evaluation HTML view...");
-            new EvaluationViewRenderer(config.getEvaluationView()).render(evaluations);
+            log.info("Generating evaluation HTML views...");
+            EvaluationViewRenderer evalRenderer = new EvaluationViewRenderer(config.getEvaluationView());
+            evalRenderer.render(evaluations);
+            evalRenderer.renderSummary(evaluations);
         }
 
         // ---- 13. Generate static HTML school-life view -------------------
@@ -413,8 +415,10 @@ public class Main {
                 SubjectEnricher enricher = new SubjectEnricher(config.getSubjectEnrichment());
                 evaluations.get().forEach(e ->
                         e.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher())));
-                log.info("Regenerating evaluation view from snapshot ({} entries)...", evaluations.get().size());
-                new EvaluationViewRenderer(config.getEvaluationView()).render(evaluations.get());
+                log.info("Regenerating evaluation views from snapshot ({} entries)...", evaluations.get().size());
+                EvaluationViewRenderer evalRenderer = new EvaluationViewRenderer(config.getEvaluationView());
+                evalRenderer.render(evaluations.get());
+                evalRenderer.renderSummary(evaluations.get());
             }
         }
 
@@ -569,8 +573,10 @@ public class Main {
         }
 
         if (features.isEvaluations() && config.getEvaluationView().isEnabled() && !evaluations.isEmpty()) {
-            log.info("Regenerating evaluation HTML view...");
-            new EvaluationViewRenderer(config.getEvaluationView()).render(evaluations);
+            log.info("Regenerating evaluation HTML views...");
+            EvaluationViewRenderer evalRenderer = new EvaluationViewRenderer(config.getEvaluationView());
+            evalRenderer.render(evaluations);
+            evalRenderer.renderSummary(evaluations);
         }
 
         if (features.isSchoolLife() && config.getSchoolLifeView().isEnabled() && !schoolLife.isEmpty()) {
@@ -1180,6 +1186,9 @@ public class Main {
             sections.add(new PortalIndexHtmlGenerator.Section(
                     "\uD83D\uDCCA", "\u00c9valuations", "Comp\u00e9tences \u00e9valu\u00e9es",
                     "evaluations/index.html"));
+            sections.add(new PortalIndexHtmlGenerator.Section(
+                    "\uD83D\uDCCB", "Bilan", "Par trimestre et par mati\u00e8re",
+                    "evaluations/summary.html"));
         }
         if (features.isSchoolLife() && config.getSchoolLifeView().isEnabled()) {
             sections.add(new PortalIndexHtmlGenerator.Section(

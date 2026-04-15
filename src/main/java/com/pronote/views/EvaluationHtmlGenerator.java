@@ -34,7 +34,7 @@ import java.util.Locale;
  */
 public class EvaluationHtmlGenerator {
 
-    private static final String[] ACCENT_COLORS = {
+    static final String[] ACCENT_COLORS = {
         "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
         "#ec4899", "#14b8a6", "#f97316", "#06b6d4", "#84cc16",
         "#a855f7", "#6366f1"
@@ -114,7 +114,7 @@ public class EvaluationHtmlGenerator {
         return sb.toString();
     }
 
-    private String renderCard(CompetenceEvaluation eval) {
+    String renderCard(CompetenceEvaluation eval) {
         String subject = displaySubject(eval);
         String color   = ACCENT_COLORS[Math.abs(subject.hashCode()) % ACCENT_COLORS.length];
         String dateStr = eval.getDate() != null ? eval.getDate().format(SHORT_DATE_FMT) : "";
@@ -256,7 +256,7 @@ public class EvaluationHtmlGenerator {
     // Utilities
     // -------------------------------------------------------------------------
 
-    private static String displaySubject(CompetenceEvaluation e) {
+    static String displaySubject(CompetenceEvaluation e) {
         String s = e.getEnrichedSubject();
         return (s != null && !s.isBlank()) ? s : (e.getSubject() != null ? e.getSubject() : "");
     }
