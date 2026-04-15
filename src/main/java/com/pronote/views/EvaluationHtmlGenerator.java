@@ -16,6 +16,11 @@ import java.util.Locale;
  * Each card shows subject (with deterministic accent colour), date, evaluation name, teacher,
  * and a row of level dots — one per acquisition, colour-coded by level abbreviation.
  *
+ * <p>Tapping / clicking a card opens a {@code <dialog>} overlay listing every acquisition
+ * component: level dot, full level label, item name, and domain. The dialog is closed by the
+ * × button, by pressing Escape, or by clicking/tapping the backdrop. A small amount of inline
+ * JavaScript (~20 lines) wires the open/close behaviour; all styling is in the embedded CSS.
+ *
  * <p>Level-dot colour scheme (matches Pronote official app):
  * <ul>
  *   <li>A+ — dark green dot with {@code +} text</li>
@@ -26,7 +31,6 @@ import java.util.Locale;
  *   <li>E  — red dot</li>
  *   <li>Ne / ABS — outlined/grey dot</li>
  * </ul>
- * Hover tooltip on each dot reveals: {@code abbreviation · domain · item}.
  */
 public class EvaluationHtmlGenerator {
 
@@ -85,6 +89,15 @@ public class EvaluationHtmlGenerator {
             + content
             + "    </main>\n"
             + "  </div>\n"
+            + "\n"
+            + "  <dialog id=\"eval-dialog\" aria-modal=\"true\" aria-label=\"D\u00e9tail de l'\u00e9valuation\">\n"
+            + "    <div class=\"dialog-inner\">\n"
+            + "      <button class=\"dialog__close\" id=\"eval-dialog-close\" aria-label=\"Fermer\">\u00d7</button>\n"
+            + "      <div id=\"eval-dialog-body\"></div>\n"
+            + "    </div>\n"
+            + "  </dialog>\n"
+            + "\n"
+            + "  <script>" + JS + "</script>\n"
             + "</body>\n"
             + "</html>\n";
     }
@@ -106,8 +119,17 @@ public class EvaluationHtmlGenerator {
         String color   = ACCENT_COLORS[Math.abs(subject.hashCode()) % ACCENT_COLORS.length];
         String dateStr = eval.getDate() != null ? eval.getDate().format(SHORT_DATE_FMT) : "";
 
+        List<CompetenceAcquisition> ordered = eval.getAcquisitions() == null
+            ? List.of()
+            : eval.getAcquisitions().stream()
+                .sorted(Comparator.comparingInt(CompetenceAcquisition::getOrder))
+                .toList();
+
         StringBuilder card = new StringBuilder();
-        card.append("      <div class=\"eval-card\" style=\"border-left-color:").append(color).append("\">\n");
+        card.append("      <div class=\"eval-card\" style=\"border-left-color:").append(color).append("\"")
+            .append(" role=\"button\" tabindex=\"0\">\n");
+
+        // ---- Visible card content ----
 
         // Header: subject + date
         card.append("        <div class=\"eval-card__header\">\n");
@@ -128,11 +150,7 @@ public class EvaluationHtmlGenerator {
         }
 
         // Competence dots
-        List<CompetenceAcquisition> acquisitions = eval.getAcquisitions();
-        if (acquisitions != null && !acquisitions.isEmpty()) {
-            List<CompetenceAcquisition> ordered = acquisitions.stream()
-                .sorted(Comparator.comparingInt(CompetenceAcquisition::getOrder))
-                .toList();
+        if (!ordered.isEmpty()) {
             card.append("        <div class=\"eval-card__dots\">\n");
             for (CompetenceAcquisition acq : ordered) {
                 card.append("          ").append(renderDot(acq)).append("\n");
@@ -140,7 +158,59 @@ public class EvaluationHtmlGenerator {
             card.append("        </div>\n");
         }
 
-        card.append("      </div>\n");
+        // ---- Hidden detail panel (cloned into dialog on click) ----
+        card.append("        <div class=\"eval-detail\" hidden>\n");
+
+        // Detail header: subject + name + date
+        card.append("          <div class=\"eval-detail__header\" style=\"border-bottom-color:").append(color).append("\">\n");
+        card.append("            <div class=\"eval-detail__header-left\">\n");
+        card.append("              <span class=\"eval-detail__subject\" style=\"color:").append(color).append("\">")
+            .append(esc(subject)).append("</span>\n");
+        if (eval.getName() != null && !eval.getName().isBlank()) {
+            card.append("              <span class=\"eval-detail__name\">").append(esc(eval.getName())).append("</span>\n");
+        }
+        card.append("            </div>\n");
+        if (!dateStr.isBlank()) {
+            card.append("            <time class=\"eval-detail__date\">").append(esc(dateStr)).append("</time>\n");
+        }
+        card.append("          </div>\n");
+
+        // Optional description
+        if (eval.getDescription() != null && !eval.getDescription().isBlank()) {
+            card.append("          <p class=\"eval-detail__desc\">").append(esc(eval.getDescription())).append("</p>\n");
+        }
+
+        // Acquisition list
+        if (!ordered.isEmpty()) {
+            card.append("          <ul class=\"eval-detail__list\">\n");
+            for (CompetenceAcquisition acq : ordered) {
+                String dotClass = levelClass(acq.getAbbreviation());
+                String dotText  = "A+".equalsIgnoreCase(acq.getAbbreviation()) ? "+" : "";
+                card.append("            <li class=\"eval-detail__item\">\n");
+                card.append("              <span class=\"level-dot ").append(dotClass).append("\">")
+                    .append(dotText).append("</span>\n");
+                card.append("              <div class=\"eval-detail__item-text\">\n");
+                if (acq.getLevel() != null && !acq.getLevel().isBlank()) {
+                    card.append("                <span class=\"eval-detail__item-level\">")
+                        .append(esc(acq.getLevel())).append("</span>\n");
+                }
+                if (acq.getName() != null && !acq.getName().isBlank()) {
+                    card.append("                <span class=\"eval-detail__item-name\">")
+                        .append(esc(acq.getName())).append("</span>\n");
+                }
+                if (acq.getDomain() != null && !acq.getDomain().isBlank()) {
+                    card.append("                <span class=\"eval-detail__item-domain\">")
+                        .append(esc(acq.getDomain())).append("</span>\n");
+                }
+                card.append("              </div>\n");
+                card.append("            </li>\n");
+            }
+            card.append("          </ul>\n");
+        }
+
+        card.append("        </div>\n"); // end eval-detail
+
+        card.append("      </div>\n"); // end eval-card
         return card.toString();
     }
 
@@ -205,6 +275,42 @@ public class EvaluationHtmlGenerator {
     }
 
     // -------------------------------------------------------------------------
+    // Embedded JavaScript
+    // -------------------------------------------------------------------------
+
+    static final String JS = """
+        (function () {
+          var dialog  = document.getElementById('eval-dialog');
+          var body    = document.getElementById('eval-dialog-body');
+          var closeBtn = document.getElementById('eval-dialog-close');
+
+          // Open dialog when a card is clicked or activated via keyboard
+          document.querySelectorAll('.eval-card').forEach(function (card) {
+            card.addEventListener('click', function () {
+              var detail = card.querySelector('.eval-detail');
+              if (!detail) return;
+              body.innerHTML = '';
+              var clone = detail.cloneNode(true);
+              clone.removeAttribute('hidden');
+              body.appendChild(clone);
+              dialog.showModal();
+            });
+            card.addEventListener('keydown', function (e) {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
+            });
+          });
+
+          // Close on × button
+          closeBtn.addEventListener('click', function () { dialog.close(); });
+
+          // Close when clicking the backdrop (outside dialog-inner)
+          dialog.addEventListener('click', function (e) {
+            if (e.target === dialog) dialog.close();
+          });
+        })();
+        """;
+
+    // -------------------------------------------------------------------------
     // Embedded CSS
     // -------------------------------------------------------------------------
 
@@ -212,7 +318,7 @@ public class EvaluationHtmlGenerator {
 
         /* ================================================================
            Évaluations — embedded stylesheet
-           Light/dark via prefers-color-scheme · No JavaScript · Responsive
+           Light/dark via prefers-color-scheme · Responsive
            ================================================================ */
 
         /* ----- Custom properties ----- */
@@ -318,6 +424,23 @@ public class EvaluationHtmlGenerator {
           flex-direction: column;
           gap: 0.2rem;
           min-width: 0;
+          cursor: pointer;
+          transition: box-shadow 0.15s ease, transform 0.1s ease;
+          -webkit-tap-highlight-color: transparent;
+          user-select: none;
+        }
+
+        .eval-card:hover {
+          box-shadow: 0 3px 10px rgba(0, 0, 0, .12);
+        }
+
+        .eval-card:active {
+          transform: scale(0.99);
+        }
+
+        .eval-card:focus-visible {
+          outline: 2px solid var(--text-2);
+          outline-offset: 2px;
         }
 
         .eval-card__header {
@@ -398,6 +521,171 @@ public class EvaluationHtmlGenerator {
           padding: 4rem 1rem;
           color: var(--text-3);
           font-size: 0.9375rem;
+        }
+
+        /* ================================================================
+           Dialog / detail overlay
+           ================================================================ */
+
+        dialog {
+          border: none;
+          padding: 0;
+          background: var(--surface);
+          color: var(--text-1);
+          border-radius: 16px;
+          width: calc(100% - 2rem);
+          max-width: 560px;
+          max-height: 80vh;
+          overflow: hidden;
+          box-shadow: 0 8px 40px rgba(0, 0, 0, .25);
+          animation: dialog-in 0.2s ease;
+        }
+
+        dialog::backdrop {
+          background: rgba(0, 0, 0, .45);
+          animation: backdrop-in 0.2s ease;
+        }
+
+        @keyframes dialog-in {
+          from { opacity: 0; transform: translateY(12px) scale(0.97); }
+          to   { opacity: 1; transform: translateY(0)    scale(1); }
+        }
+
+        @keyframes backdrop-in {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+
+        .dialog-inner {
+          position: relative;
+          overflow-y: auto;
+          max-height: 80vh;
+          padding: 0;
+        }
+
+        /* ----- Close button ----- */
+        .dialog__close {
+          position: sticky;
+          top: 0.75rem;
+          float: right;
+          margin: 0.75rem 0.75rem 0 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 1.75rem;
+          height: 1.75rem;
+          border: none;
+          border-radius: 50%;
+          background: var(--border);
+          color: var(--text-2);
+          font-size: 1.125rem;
+          line-height: 1;
+          cursor: pointer;
+          z-index: 1;
+          flex-shrink: 0;
+        }
+
+        .dialog__close:hover {
+          background: var(--text-3);
+          color: var(--text-1);
+        }
+
+        /* ----- Dialog body (cloned eval-detail) ----- */
+        .eval-detail {
+          padding: 1rem 1.25rem 1.5rem;
+        }
+
+        .eval-detail__header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 0.75rem;
+          padding-bottom: 0.875rem;
+          margin-bottom: 0.875rem;
+          border-bottom: 2px solid var(--border);
+        }
+
+        .eval-detail__header-left {
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+          min-width: 0;
+        }
+
+        .eval-detail__subject {
+          font-size: 0.8125rem;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+
+        .eval-detail__name {
+          font-size: 0.9375rem;
+          font-style: italic;
+          color: var(--text-1);
+          line-height: 1.4;
+        }
+
+        .eval-detail__date {
+          font-size: 0.8125rem;
+          color: var(--text-2);
+          white-space: nowrap;
+          flex-shrink: 0;
+          padding-top: 0.1rem;
+        }
+
+        .eval-detail__desc {
+          font-size: 0.875rem;
+          color: var(--text-2);
+          margin-bottom: 0.875rem;
+          line-height: 1.5;
+        }
+
+        /* ----- Acquisition list ----- */
+        .eval-detail__list {
+          list-style: none;
+          display: flex;
+          flex-direction: column;
+          gap: 0.625rem;
+        }
+
+        .eval-detail__item {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.625rem;
+        }
+
+        .eval-detail__item .level-dot {
+          margin-top: 0.125rem;
+          flex-shrink: 0;
+          cursor: default;
+        }
+
+        .eval-detail__item-text {
+          display: flex;
+          flex-direction: column;
+          gap: 0.1rem;
+          min-width: 0;
+        }
+
+        .eval-detail__item-level {
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: var(--text-2);
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+        }
+
+        .eval-detail__item-name {
+          font-size: 0.9375rem;
+          color: var(--text-1);
+          line-height: 1.4;
+        }
+
+        .eval-detail__item-domain {
+          font-size: 0.8125rem;
+          color: var(--text-3);
+          line-height: 1.3;
         }
         """;
 }

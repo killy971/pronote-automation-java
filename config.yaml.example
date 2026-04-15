@@ -103,3 +103,33 @@ viewPublish:
   # They land at: <repoPath>/snapshots/assignments/attachments/<id>/<file>
   # Existing attachment files are overwritten but never deleted (accumulate over time).
   publishAttachments: true
+
+# Subject enrichment — controls the enrichedSubject field on all persisted data types.
+# Rules with both subject + teacher are matched first (most specific).
+# Rules with subject only apply to any teacher (and to data types without a teacher, e.g. assignments).
+# When no rule matches, enrichedSubject falls back to the original subject string.
+subjectEnrichment:
+  # Some Pronote API endpoints return teacher names prefixed with a civil title:
+  #   evaluations (DernieresEvaluations) → "M. DUPONT J." / "Mme MARTIN S."
+  #   timetable (PageEmploiDuTemps)      → "DUPONT J."  (no prefix)
+  # List the prefixes here; they are stripped before rule matching so a single rule covers
+  # both forms (timetable with no prefix, evaluations with prefix).
+  # Matching: "M." strips "M. DUPONT J." → "DUPONT J." (prefix + space removed from start).
+  teacherPrefixes:
+    - "M."
+    - "Mme"
+  rules:
+    # Example: disambiguate HISTOIRE-GEOGRAPHIE by teacher (one rule per teacher)
+    # The bare teacher name ("DUPONT J.") works for both timetable and evaluations thanks
+    # to teacherPrefixes above — no need to duplicate rules with "M. DUPONT J.".
+    - subject: "HISTOIRE-GEOGRAPHIE"
+      teacher: "DUPONT J."
+      enrichedSubject: "Histoire"
+    - subject: "HISTOIRE-GEOGRAPHIE"
+      teacher: "MARTIN S."
+      enrichedSubject: "Géographie"
+    # Subject-only rules (no teacher) — apply to all data types including assignments
+    - subject: "MATHEMATIQUES"
+      enrichedSubject: "Mathématiques"
+    - subject: "FRANCAIS"
+      enrichedSubject: "Français"

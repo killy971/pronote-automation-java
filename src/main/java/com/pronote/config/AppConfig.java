@@ -237,6 +237,14 @@ public class AppConfig {
      * <p>YAML example:
      * <pre>
      * subjectEnrichment:
+     *   # Some Pronote API endpoints (e.g. evaluations via DernieresEvaluations) return teacher
+     *   # names prefixed with a civil title ("M. DUPONT J." / "Mme MARTIN S.") while others
+     *   # (e.g. timetable via PageEmploiDuTemps) return the bare name ("DUPONT J.").
+     *   # List the prefixes here; they are stripped before rule matching so a single rule covers
+     *   # both forms. Matching is prefix + space ("M. " strips "M. DUPONT J." → "DUPONT J.").
+     *   teacherPrefixes:
+     *     - "M."
+     *     - "Mme"
      *   rules:
      *     - subject: "HISTOIRE-GEOGRAPHIE"
      *       teacher: "BUKOWIECKI J."
@@ -254,10 +262,22 @@ public class AppConfig {
      */
     public static class SubjectEnrichmentConfig {
         private List<SubjectEnrichmentRule> rules = new ArrayList<>();
+        /**
+         * Civil title prefixes to strip from teacher names before rule matching (e.g. "M.", "Mme").
+         * A trailing space is appended automatically, so "M." strips "M. DUPONT J." → "DUPONT J.".
+         * This lets a single rule match both timetable teachers (no prefix) and evaluation teachers
+         * (prefixed) without duplicating entries.
+         */
+        private List<String> teacherPrefixes = new ArrayList<>();
 
         public List<SubjectEnrichmentRule> getRules() { return rules; }
         public void setRules(List<SubjectEnrichmentRule> rules) {
             this.rules = rules != null ? rules : new ArrayList<>();
+        }
+
+        public List<String> getTeacherPrefixes() { return teacherPrefixes; }
+        public void setTeacherPrefixes(List<String> teacherPrefixes) {
+            this.teacherPrefixes = teacherPrefixes != null ? teacherPrefixes : new ArrayList<>();
         }
     }
 

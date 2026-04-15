@@ -407,6 +407,12 @@ public class Main {
             if (evaluations.isEmpty()) {
                 log.warn("No evaluations snapshot found — skipping evaluation view regeneration.");
             } else {
+                // Re-apply subject enrichment from current config rules so that snapshots
+                // saved before a rule was added (or before teacherPrefixes was configured)
+                // still render with correct enrichedSubject values in --mode views.
+                SubjectEnricher enricher = new SubjectEnricher(config.getSubjectEnrichment());
+                evaluations.get().forEach(e ->
+                        e.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher())));
                 log.info("Regenerating evaluation view from snapshot ({} entries)...", evaluations.get().size());
                 new EvaluationViewRenderer(config.getEvaluationView()).render(evaluations.get());
             }
