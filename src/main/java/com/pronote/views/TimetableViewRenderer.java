@@ -1,6 +1,7 @@
 package com.pronote.views;
 
 import com.pronote.config.AppConfig;
+import com.pronote.domain.Assignment;
 import com.pronote.domain.EntryStatus;
 import com.pronote.domain.TimetableEntry;
 import org.slf4j.Logger;
@@ -17,8 +18,10 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Generates and writes static HTML timetable view files.
@@ -56,9 +59,11 @@ public class TimetableViewRenderer {
     /**
      * Generates all HTML view files from the given timetable snapshot.
      *
-     * @param allEntries the full timetable snapshot (all weeks, all days)
+     * @param allEntries    the full timetable snapshot (all weeks, all days)
+     * @param allAssignments all assignments; used to annotate lesson cards with due-today counts.
+     *                       Pass an empty list to suppress assignment chips.
      */
-    public void render(List<TimetableEntry> allEntries) {
+    public void render(List<TimetableEntry> allEntries, List<Assignment> allAssignments) {
         Path outDir = Path.of(viewConfig.getOutputDirectory());
         try {
             Files.createDirectories(outDir);
@@ -71,13 +76,14 @@ public class TimetableViewRenderer {
 
         for (LocalDate date : dates) {
             List<TimetableEntry> dayEntries = entriesForDate(allEntries, date);
-            String html = generator.generate(date, dayEntries);
+            Map<String, List<Assignment>> assignsBySubject = groupAssignmentsBySubject(allAssignments, date);
+            String html = generator.generate(date, dayEntries, assignsBySubject);
             Path file = outDir.resolve(date + ".html");
             writeFile(file, html);
             log.debug("Written {}", file.getFileName());
         }
 
-        String indexHtml = generateIndex(dates, allEntries);
+        String indexHtml = generateIndex(dates, allEntries, allAssignments);
         writeFile(outDir.resolve("index.html"), indexHtml);
         log.info("Timetable views written to {}", outDir);
     }
@@ -86,13 +92,17 @@ public class TimetableViewRenderer {
     // Index page
     // -------------------------------------------------------------------------
 
-    private String generateIndex(List<LocalDate> dates, List<TimetableEntry> allEntries) {
+    private String generateIndex(List<LocalDate> dates, List<TimetableEntry> allEntries,
+                                  List<Assignment> allAssignments) {
         String generatedAt = capitalize(LocalDateTime.now().format(DATETIME_FMT));
 
         StringBuilder cards = new StringBuilder();
         for (LocalDate date : dates) {
             List<TimetableEntry> dayEntries = entriesForDate(allEntries, date);
-            cards.append(renderDayCard(date, dayEntries));
+            long assignCount = allAssignments.stream()
+                .filter(a -> date.equals(a.getDueDate()) && !a.isDone())
+                .count();
+            cards.append(renderDayCard(date, dayEntries, assignCount));
         }
 
         return "<!DOCTYPE html>\n"
@@ -118,7 +128,7 @@ public class TimetableViewRenderer {
             + "</html>\n";
     }
 
-    private String renderDayCard(LocalDate date, List<TimetableEntry> entries) {
+    private String renderDayCard(LocalDate date, List<TimetableEntry> entries, long assignCount) {
         String dow      = capitalize(date.format(DAY_OF_WEEK_FMT));
         String shortDt  = capitalize(date.format(SHORT_DATE_FMT));
         String href     = date + ".html";
@@ -150,6 +160,11 @@ public class TimetableViewRenderer {
                     + "\u26a0\ufe0f\u00a0" + cancelled + "\u00a0annulation" + (cancelled > 1 ? "s" : "")
                     + "</div>";
             }
+        }
+
+        if (assignCount > 0) {
+            metaLine += "\u00a0\u00b7\u00a0" + assignCount
+                + "\u00a0devoir" + (assignCount > 1 ? "s" : "");
         }
 
         String emptyClass = entries.isEmpty() ? " day-card--empty" : "";
@@ -199,6 +214,30 @@ public class TimetableViewRenderer {
     private static String capitalize(String s) {
         if (s == null || s.isEmpty()) return s;
         return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    /**
+     * Groups assignments by display-subject for the given date.
+     * All assignments due on {@code date} are included regardless of done status
+     * (done ones are rendered greyed in the popup).
+     */
+    private static Map<String, List<Assignment>> groupAssignmentsBySubject(
+            List<Assignment> allAssignments, LocalDate date) {
+        Map<String, List<Assignment>> result = new HashMap<>();
+        for (Assignment a : allAssignments) {
+            if (date.equals(a.getDueDate())) {
+                String subject = displaySubject(a);
+                if (subject != null && !subject.isBlank()) {
+                    result.computeIfAbsent(subject, k -> new ArrayList<>()).add(a);
+                }
+            }
+        }
+        return result;
+    }
+
+    private static String displaySubject(Assignment a) {
+        String enriched = a.getEnrichedSubject();
+        return (enriched != null && !enriched.isBlank()) ? enriched : a.getSubject();
     }
 
     private static void writeFile(Path path, String content) {

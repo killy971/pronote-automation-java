@@ -296,7 +296,7 @@ public class Main {
         // ---- 10. Generate static HTML timetable views ---------------------
         if (features.isTimetable() && config.getTimetableView().isEnabled()) {
             log.info("Generating timetable HTML views...");
-            new TimetableViewRenderer(config.getTimetableView()).render(timetable);
+            new TimetableViewRenderer(config.getTimetableView()).render(timetable, assignments);
         }
 
         // ---- 11. Generate static HTML assignment view ---------------------
@@ -379,6 +379,12 @@ public class Main {
 
         SnapshotStore snapshotStore = new SnapshotStore(dataDir, config.getData().getArchiveRetainDays());
 
+        // Pre-load assignments snapshot — used to annotate timetable views even when the
+        // standalone assignment view is disabled. Silent if the snapshot file is missing.
+        Optional<List<Assignment>> assignmentsSnap =
+                snapshotStore.loadLatest("assignments", new TypeReference<>() {});
+        List<Assignment> assignmentsData = assignmentsSnap.orElse(List.of());
+
         if (timetableViewEnabled) {
             Optional<List<TimetableEntry>> timetable =
                     snapshotStore.loadLatest("timetable", new TypeReference<>() {});
@@ -388,19 +394,17 @@ public class Main {
                         + " — run 'make run' first to fetch data.");
             }
             log.info("Regenerating timetable views from snapshot ({} entries)...", timetable.get().size());
-            new TimetableViewRenderer(config.getTimetableView()).render(timetable.get());
+            new TimetableViewRenderer(config.getTimetableView()).render(timetable.get(), assignmentsData);
         }
 
         if (assignmentViewEnabled) {
-            Optional<List<Assignment>> assignments =
-                    snapshotStore.loadLatest("assignments", new TypeReference<>() {});
-            if (assignments.isEmpty()) {
+            if (assignmentsSnap.isEmpty()) {
                 throw new RuntimeException("No assignments snapshot found at "
                         + dataDir.resolve("snapshots/assignments/latest.json")
                         + " — run 'make run' first to fetch data.");
             }
-            log.info("Regenerating assignment view from snapshot ({} entries)...", assignments.get().size());
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments.get());
+            log.info("Regenerating assignment view from snapshot ({} entries)...", assignmentsData.size());
+            new AssignmentViewRenderer(config.getAssignmentView()).render(assignmentsData);
         }
 
         if (evaluationViewEnabled) {
@@ -564,7 +568,7 @@ public class Main {
 
         if (features.isTimetable() && config.getTimetableView().isEnabled() && !timetable.isEmpty()) {
             log.info("Regenerating timetable HTML views...");
-            new TimetableViewRenderer(config.getTimetableView()).render(timetable);
+            new TimetableViewRenderer(config.getTimetableView()).render(timetable, assignments);
         }
 
         if (features.isAssignments() && config.getAssignmentView().isEnabled() && !assignments.isEmpty()) {

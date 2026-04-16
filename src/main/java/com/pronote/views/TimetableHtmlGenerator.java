@@ -1,5 +1,6 @@
 package com.pronote.views;
 
+import com.pronote.domain.Assignment;
 import com.pronote.domain.EntryStatus;
 import com.pronote.domain.TimetableEntry;
 
@@ -9,11 +10,13 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -48,35 +51,56 @@ public class TimetableHtmlGenerator {
     /**
      * Generates the full HTML document for the given day.
      *
-     * @param date    the date to render
-     * @param entries all timetable entries for this specific day (may be empty)
+     * @param date                  the date to render
+     * @param entries               all timetable entries for this specific day (may be empty)
+     * @param assignmentsBySubject  assignments due this day, keyed by display-subject name;
+     *                              empty map means no assignment chips will be rendered
      * @return a complete, self-contained HTML5 document
      */
-    public String generate(LocalDate date, List<TimetableEntry> entries) {
+    public String generate(LocalDate date, List<TimetableEntry> entries,
+                           Map<String, List<Assignment>> assignmentsBySubject) {
         String fullDate  = capitalize(date.format(FULL_DATE_FMT));
         String titleDate = capitalize(date.format(SHORT_DATE_FMT));
         String schedule  = entries.isEmpty()
             ? "<p class=\"empty-day\">Pas de cours ce jour.</p>\n"
-            : renderSchedule(entries);
+            : renderSchedule(entries, assignmentsBySubject);
 
-        return "<!DOCTYPE html>\n"
-            + "<html lang=\"fr\">\n"
-            + "<head>\n"
-            + "  <meta charset=\"UTF-8\">\n"
-            + "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
-            + "  <title>Emploi du temps \u2014 " + titleDate + "</title>\n"
-            + "  <style>" + CSS + "</style>\n"
-            + "</head>\n"
-            + "<body>\n"
-            + "  <div class=\"page\">\n"
-            + "    <nav class=\"nav\"><a class=\"nav__back\" href=\"index.html\">\u2190\u00a0Semaine</a></nav>\n"
-            + "    <header class=\"day-header\">\n"
-            + "      <h1 class=\"day-header__date\"><time datetime=\"" + date + "\">" + fullDate + "</time></h1>\n"
-            + "    </header>\n"
-            + "    " + schedule
-            + "  </div>\n"
-            + "</body>\n"
-            + "</html>\n";
+        boolean hasChips = !assignmentsBySubject.isEmpty();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<!DOCTYPE html>\n")
+          .append("<html lang=\"fr\">\n")
+          .append("<head>\n")
+          .append("  <meta charset=\"UTF-8\">\n")
+          .append("  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n")
+          .append("  <title>Emploi du temps \u2014 ").append(titleDate).append("</title>\n")
+          .append("  <style>").append(CSS).append("</style>\n")
+          .append("</head>\n")
+          .append("<body>\n")
+          .append("  <div class=\"page\">\n")
+          .append("    <nav class=\"nav\"><a class=\"nav__back\" href=\"index.html\">\u2190\u00a0Semaine</a></nav>\n")
+          .append("    <header class=\"day-header\">\n")
+          .append("      <h1 class=\"day-header__date\"><time datetime=\"").append(date).append("\">").append(fullDate).append("</time></h1>\n")
+          .append("    </header>\n")
+          .append("    ").append(schedule)
+          .append("  </div>\n");
+
+        if (hasChips) {
+            sb.append("\n")
+              .append("  <dialog id=\"assign-dialog\" aria-modal=\"true\" aria-label=\"Devoirs\">\n")
+              .append("    <div class=\"dialog-inner\">\n")
+              .append("      <button class=\"dialog__close\" id=\"assign-dialog-close\" aria-label=\"Fermer\">\u00d7</button>\n")
+              .append("      <div id=\"assign-dialog-body\"></div>\n")
+              .append("    </div>\n")
+              .append("  </dialog>\n")
+              .append("\n")
+              .append("  <script>").append(ASSIGN_JS).append("</script>\n");
+        }
+
+        sb.append("</body>\n")
+          .append("</html>\n");
+
+        return sb.toString();
     }
 
     // -------------------------------------------------------------------------
@@ -137,7 +161,8 @@ public class TimetableHtmlGenerator {
         return result;
     }
 
-    private String renderSchedule(List<TimetableEntry> entries) {
+    private String renderSchedule(List<TimetableEntry> entries,
+                                   Map<String, List<Assignment>> assignmentsBySubject) {
         List<MergedEntry> sorted = collapseSlots(entries).stream()
             .sorted(Comparator.comparing(me -> me.entry().getStartTime()))
             .toList();
@@ -148,6 +173,10 @@ public class TimetableHtmlGenerator {
         // Initialised to the first lesson's start hour.
         int cursor = sorted.get(0).entry().getStartTime().getHour();
 
+        // Track which subjects have already received an assignment chip so we only
+        // show the chip on the first occurrence of each subject within the day.
+        Set<String> seenSubjects = new HashSet<>();
+
         for (MergedEntry me : sorted) {
             int lessonHour = me.entry().getStartTime().getHour();
 
@@ -157,7 +186,13 @@ public class TimetableHtmlGenerator {
                 cursor++;
             }
 
-            sb.append(renderLessonSlot(me));
+            // First occurrence of this subject gets the assignment chip; subsequent ones don't.
+            String subject = displaySubject(me.entry());
+            List<Assignment> subjectAssignments = seenSubjects.add(subject)
+                ? assignmentsBySubject.getOrDefault(subject, List.of())
+                : null;
+
+            sb.append(renderLessonSlot(me, subjectAssignments));
 
             // Advance cursor to the hour when this lesson ends (ceiling to whole hour).
             // Use max(cursor, endHour) — not cursor+1 — so that same-start-hour lessons
@@ -173,7 +208,12 @@ public class TimetableHtmlGenerator {
         return sb.toString();
     }
 
-    private String renderLessonSlot(MergedEntry me) {
+    /**
+     * @param subjectAssignments assignments due today for this subject — non-null only for the
+     *                           first occurrence of the subject within the day; null means no chip.
+     *                           An empty (non-null) list means first occurrence but no assignments.
+     */
+    private String renderLessonSlot(MergedEntry me, List<Assignment> subjectAssignments) {
         TimetableEntry e = me.entry();
         String color    = ACCENT_COLORS[Math.abs(e.getSubject().hashCode()) % ACCENT_COLORS.length];
         boolean cancelled = e.getStatus() == EntryStatus.CANCELLED
@@ -182,13 +222,21 @@ public class TimetableHtmlGenerator {
         String cardClass   = cancelled ? "lesson lesson--cancelled" : "lesson";
         String borderStyle = cancelled ? "" : " style=\"border-left-color:" + color + "\"";
 
+        boolean showChip = subjectAssignments != null && !subjectAssignments.isEmpty();
+        String subjectLabel = displaySubject(e);
+
         StringBuilder card = new StringBuilder();
         card.append("      <div class=\"").append(cardClass).append("\"").append(borderStyle).append(">\n");
 
-        // Subject
-        String displaySubject = e.getEnrichedSubject() != null && !e.getEnrichedSubject().isBlank()
-            ? e.getEnrichedSubject() : e.getSubject();
-        card.append("        <div class=\"lesson__subject\">").append(esc(displaySubject)).append("</div>\n");
+        // Subject — wrapped with assignment chip when present
+        if (showChip) {
+            card.append("        <div class=\"lesson__head\">\n");
+            card.append("          <div class=\"lesson__subject\">").append(esc(subjectLabel)).append("</div>\n");
+            card.append(renderAssignChip(subjectLabel, subjectAssignments));
+            card.append("        </div>\n");
+        } else {
+            card.append("        <div class=\"lesson__subject\">").append(esc(subjectLabel)).append("</div>\n");
+        }
 
         // Teacher
         if (e.getTeacher() != null && !e.getTeacher().isBlank()) {
@@ -216,8 +264,7 @@ public class TimetableHtmlGenerator {
         // "Replaces" note — only shown when a different-subject cancelled entry was collapsed
         TimetableEntry sibling = me.cancelledSibling();
         if (sibling != null) {
-            String siblingSubject = sibling.getEnrichedSubject() != null && !sibling.getEnrichedSubject().isBlank()
-                ? sibling.getEnrichedSubject() : sibling.getSubject();
+            String siblingSubject = displaySubject(sibling);
             StringBuilder detail = new StringBuilder(esc(siblingSubject));
             if (sibling.getTeacher() != null && !sibling.getTeacher().isBlank()) {
                 detail.append(" \u00b7 ").append(esc(sibling.getTeacher()));
@@ -237,6 +284,47 @@ public class TimetableHtmlGenerator {
              + "      <span class=\"slot__time\">" + timeTag(e.getStartTime().toLocalTime()) + "</span>\n"
              + card
              + "    </div>\n";
+    }
+
+    // -------------------------------------------------------------------------
+    // Assignment chip
+    // -------------------------------------------------------------------------
+
+    /** Renders the chip button and its hidden detail panel (cloned into dialog on click). */
+    private String renderAssignChip(String displaySubject, List<Assignment> assignments) {
+        int count = assignments.size();
+        String label = count + "\u00a0devoir" + (count > 1 ? "s" : "");
+        String ariaLabel = label + "\u00a0\u2014\u00a0" + esc(displaySubject);
+        return "          <div class=\"lesson__assign-wrap\">\n"
+             + "            <button class=\"lesson__assign-chip\" aria-label=\"" + ariaLabel + "\">"
+             + count + "</button>\n"
+             + renderAssignDetail(displaySubject, assignments)
+             + "          </div>\n";
+    }
+
+    /** Hidden panel whose content is cloned into the dialog when the chip is clicked. */
+    private String renderAssignDetail(String displaySubject, List<Assignment> assignments) {
+        int count = assignments.size();
+        String title = count + "\u00a0devoir" + (count > 1 ? "s" : "")
+                     + "\u00a0\u00b7\u00a0" + esc(displaySubject);
+        StringBuilder sb = new StringBuilder();
+        sb.append("            <div class=\"lesson__assign-detail\" hidden>\n");
+        sb.append("              <div class=\"assign-popup__title\">").append(title).append("</div>\n");
+        for (Assignment a : assignments) {
+            boolean done = a.isDone();
+            sb.append("              <div class=\"assign-popup__item")
+              .append(done ? " assign-popup__item--done" : "")
+              .append("\">\n");
+            String desc = a.getDescription();
+            if (desc != null && !desc.isBlank()) {
+                sb.append("                <p class=\"assign-popup__desc\">").append(esc(desc)).append("</p>\n");
+            } else {
+                sb.append("                <p class=\"assign-popup__desc assign-popup__desc--empty\">(aucune description)</p>\n");
+            }
+            sb.append("              </div>\n");
+        }
+        sb.append("            </div>\n");
+        return sb.toString();
     }
 
     private String renderGapSlot(int hour) {
@@ -302,6 +390,12 @@ public class TimetableHtmlGenerator {
         return ACCENT_COLORS[Math.abs(subject.hashCode()) % ACCENT_COLORS.length];
     }
 
+    /** Returns the display name for a timetable entry: enrichedSubject if set, else subject. */
+    private static String displaySubject(TimetableEntry e) {
+        String enriched = e.getEnrichedSubject();
+        return (enriched != null && !enriched.isBlank()) ? enriched : e.getSubject();
+    }
+
     private static String capitalize(String s) {
         if (s == null || s.isEmpty()) return s;
         return Character.toUpperCase(s.charAt(0)) + s.substring(1);
@@ -314,6 +408,40 @@ public class TimetableHtmlGenerator {
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;");
     }
+
+    // -------------------------------------------------------------------------
+    // Assignment dialog JS
+    // -------------------------------------------------------------------------
+
+    static final String ASSIGN_JS = """
+        (function () {
+          var dialog   = document.getElementById('assign-dialog');
+          var body     = document.getElementById('assign-dialog-body');
+          var closeBtn = document.getElementById('assign-dialog-close');
+
+          document.querySelectorAll('.lesson__assign-chip').forEach(function (chip) {
+            chip.addEventListener('click', function (e) {
+              e.stopPropagation();
+              var detail = chip.parentElement.querySelector('.lesson__assign-detail');
+              if (!detail) return;
+              body.innerHTML = '';
+              var clone = detail.cloneNode(true);
+              clone.removeAttribute('hidden');
+              body.appendChild(clone);
+              dialog.showModal();
+            });
+            chip.addEventListener('keydown', function (e) {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chip.click(); }
+            });
+          });
+
+          closeBtn.addEventListener('click', function () { dialog.close(); });
+
+          dialog.addEventListener('click', function (e) {
+            if (e.target === dialog) dialog.close();
+          });
+        })();
+        """;
 
     // -------------------------------------------------------------------------
     // Embedded CSS (shared by day pages and the index)
@@ -617,6 +745,144 @@ public class TimetableHtmlGenerator {
           font-size: 0.75rem;
           color: var(--text-3);
           text-align: center;
+        }
+
+        /* ----- Lesson head (subject + assignment chip row) ----- */
+        .lesson__head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 0.5rem;
+          min-width: 0;
+        }
+
+        .lesson__head .lesson__subject {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .lesson__assign-wrap {
+          flex-shrink: 0;
+        }
+
+        .lesson__assign-chip {
+          display: inline-flex;
+          align-items: center;
+          padding: 0.125rem 0.4375rem;
+          border-radius: 999px;
+          font-size: 0.625rem;
+          font-weight: 700;
+          letter-spacing: 0.03em;
+          line-height: 1.4;
+          white-space: nowrap;
+          border: 1px solid var(--border);
+          background: var(--bg);
+          color: var(--text-2);
+          cursor: pointer;
+        }
+
+        .lesson__assign-chip:hover {
+          color: var(--text-1);
+        }
+
+        /* ----- Assignment popup content ----- */
+        .assign-popup__title {
+          font-size: 0.75rem;
+          font-weight: 700;
+          color: var(--text-2);
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          padding: 1rem 1rem 0.625rem;
+          border-bottom: 1px solid var(--border);
+        }
+
+        .assign-popup__item {
+          padding: 0.625rem 1rem;
+          border-bottom: 1px solid var(--border);
+        }
+
+        .assign-popup__item:last-child {
+          border-bottom: none;
+          padding-bottom: 0.75rem;
+        }
+
+        .assign-popup__desc {
+          font-size: 0.875rem;
+          color: var(--text-1);
+          line-height: 1.5;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+
+        .assign-popup__item--done .assign-popup__desc {
+          text-decoration: line-through;
+          color: var(--text-3);
+          opacity: 0.7;
+        }
+
+        .assign-popup__desc--empty {
+          font-style: italic;
+          color: var(--text-3);
+        }
+
+        /* ----- Dialog / overlay ----- */
+        dialog {
+          border: none;
+          padding: 0;
+          background: var(--surface);
+          border-radius: 16px;
+          width: min(400px, 92vw);
+          max-height: 80vh;
+          overflow: hidden;
+          box-shadow: 0 8px 40px rgba(0, 0, 0, .25);
+          animation: dialog-in 0.2s ease;
+        }
+
+        dialog::backdrop {
+          background: rgba(0, 0, 0, .45);
+          animation: backdrop-in 0.2s ease;
+        }
+
+        @keyframes dialog-in {
+          from { opacity: 0; transform: translateY(12px) scale(0.97); }
+          to   { opacity: 1; transform: translateY(0)    scale(1); }
+        }
+
+        @keyframes backdrop-in {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+
+        .dialog-inner {
+          position: relative;
+          overflow-y: auto;
+          max-height: 80vh;
+          padding-bottom: 0.5rem;
+        }
+
+        .dialog__close {
+          position: sticky;
+          top: 0.75rem;
+          float: right;
+          margin: 0.75rem 0.75rem 0 0;
+          width: 1.75rem;
+          height: 1.75rem;
+          border-radius: 50%;
+          border: none;
+          background: var(--border);
+          color: var(--text-2);
+          font-size: 1rem;
+          line-height: 1;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+
+        .dialog__close:hover {
+          background: var(--text-3);
+          color: var(--text-1);
         }
         """;
 }

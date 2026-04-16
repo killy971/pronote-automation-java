@@ -115,7 +115,7 @@ public class AssignmentHtmlGenerator {
 
     private String renderDateGroup(LocalDate date, List<Assignment> dayAssignments, Path outputDir) {
         StringBuilder sb = new StringBuilder();
-        sb.append("      <section class=\"date-group\">\n");
+        sb.append("      <section class=\"date-group\" id=\"date-").append(date.format(DATE_ATTR_FMT)).append("\">\n");
         sb.append("        <h2 class=\"date-group__heading\">"
             + "<time datetime=\"").append(date.format(DATE_ATTR_FMT)).append("\">")
             .append(esc(capitalize(date.format(DATE_HEADER_FMT))))
