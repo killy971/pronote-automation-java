@@ -159,62 +159,83 @@ public class EvaluationHtmlGenerator {
         }
 
         // ---- Hidden detail panel (cloned into dialog on click) ----
-        card.append("        <div class=\"eval-detail\" hidden>\n");
-
-        // Detail header: subject + name + date
-        card.append("          <div class=\"eval-detail__header\" style=\"border-bottom-color:").append(color).append("\">\n");
-        card.append("            <div class=\"eval-detail__header-left\">\n");
-        card.append("              <span class=\"eval-detail__subject\" style=\"color:").append(color).append("\">")
-            .append(esc(subject)).append("</span>\n");
-        if (eval.getName() != null && !eval.getName().isBlank()) {
-            card.append("              <span class=\"eval-detail__name\">").append(esc(eval.getName())).append("</span>\n");
-        }
-        card.append("            </div>\n");
-        if (!dateStr.isBlank()) {
-            card.append("            <time class=\"eval-detail__date\">").append(esc(dateStr)).append("</time>\n");
-        }
-        card.append("          </div>\n");
-
-        // Optional description
-        if (eval.getDescription() != null && !eval.getDescription().isBlank()) {
-            card.append("          <p class=\"eval-detail__desc\">").append(esc(eval.getDescription())).append("</p>\n");
-        }
-
-        // Acquisition list
-        if (!ordered.isEmpty()) {
-            card.append("          <ul class=\"eval-detail__list\">\n");
-            for (CompetenceAcquisition acq : ordered) {
-                String dotClass = levelClass(acq.getAbbreviation());
-                String dotText  = "A+".equalsIgnoreCase(acq.getAbbreviation()) ? "+" : "";
-                card.append("            <li class=\"eval-detail__item\">\n");
-                card.append("              <span class=\"level-dot ").append(dotClass).append("\">")
-                    .append(dotText).append("</span>\n");
-                card.append("              <div class=\"eval-detail__item-text\">\n");
-                if (acq.getLevel() != null && !acq.getLevel().isBlank()) {
-                    card.append("                <span class=\"eval-detail__item-level\">")
-                        .append(esc(acq.getLevel())).append("</span>\n");
-                }
-                if (acq.getName() != null && !acq.getName().isBlank()) {
-                    card.append("                <span class=\"eval-detail__item-name\">")
-                        .append(esc(acq.getName())).append("</span>\n");
-                }
-                if (acq.getDomain() != null && !acq.getDomain().isBlank()) {
-                    card.append("                <span class=\"eval-detail__item-domain\">")
-                        .append(esc(acq.getDomain())).append("</span>\n");
-                }
-                card.append("              </div>\n");
-                card.append("            </li>\n");
-            }
-            card.append("          </ul>\n");
-        }
-
-        card.append("        </div>\n"); // end eval-detail
+        card.append(renderDetailPanel(eval));
 
         card.append("      </div>\n"); // end eval-card
         return card.toString();
     }
 
-    private String renderDot(CompetenceAcquisition acq) {
+    /**
+     * Renders the hidden {@code <div class="eval-detail">} panel that is cloned into
+     * the dialog on click.  Package-private so the summary generator can embed it in
+     * compact cards without duplicating the markup.
+     */
+    String renderDetailPanel(CompetenceEvaluation eval) {
+        String subject = displaySubject(eval);
+        String color   = ACCENT_COLORS[Math.abs(subject.hashCode()) % ACCENT_COLORS.length];
+        String dateStr = eval.getDate() != null ? eval.getDate().format(SHORT_DATE_FMT) : "";
+
+        List<CompetenceAcquisition> ordered = eval.getAcquisitions() == null
+            ? List.of()
+            : eval.getAcquisitions().stream()
+                .sorted(Comparator.comparingInt(CompetenceAcquisition::getOrder))
+                .toList();
+
+        StringBuilder panel = new StringBuilder();
+        panel.append("        <div class=\"eval-detail\" hidden>\n");
+
+        // Detail header: subject + name + date
+        panel.append("          <div class=\"eval-detail__header\" style=\"border-bottom-color:").append(color).append("\">\n");
+        panel.append("            <div class=\"eval-detail__header-left\">\n");
+        panel.append("              <span class=\"eval-detail__subject\" style=\"color:").append(color).append("\">")
+            .append(esc(subject)).append("</span>\n");
+        if (eval.getName() != null && !eval.getName().isBlank()) {
+            panel.append("              <span class=\"eval-detail__name\">").append(esc(eval.getName())).append("</span>\n");
+        }
+        panel.append("            </div>\n");
+        if (!dateStr.isBlank()) {
+            panel.append("            <time class=\"eval-detail__date\">").append(esc(dateStr)).append("</time>\n");
+        }
+        panel.append("          </div>\n");
+
+        // Optional description
+        if (eval.getDescription() != null && !eval.getDescription().isBlank()) {
+            panel.append("          <p class=\"eval-detail__desc\">").append(esc(eval.getDescription())).append("</p>\n");
+        }
+
+        // Acquisition list
+        if (!ordered.isEmpty()) {
+            panel.append("          <ul class=\"eval-detail__list\">\n");
+            for (CompetenceAcquisition acq : ordered) {
+                String dotClass = levelClass(acq.getAbbreviation());
+                String dotText  = "A+".equalsIgnoreCase(acq.getAbbreviation()) ? "+" : "";
+                panel.append("            <li class=\"eval-detail__item\">\n");
+                panel.append("              <span class=\"level-dot ").append(dotClass).append("\">")
+                    .append(dotText).append("</span>\n");
+                panel.append("              <div class=\"eval-detail__item-text\">\n");
+                if (acq.getLevel() != null && !acq.getLevel().isBlank()) {
+                    panel.append("                <span class=\"eval-detail__item-level\">")
+                        .append(esc(acq.getLevel())).append("</span>\n");
+                }
+                if (acq.getName() != null && !acq.getName().isBlank()) {
+                    panel.append("                <span class=\"eval-detail__item-name\">")
+                        .append(esc(acq.getName())).append("</span>\n");
+                }
+                if (acq.getDomain() != null && !acq.getDomain().isBlank()) {
+                    panel.append("                <span class=\"eval-detail__item-domain\">")
+                        .append(esc(acq.getDomain())).append("</span>\n");
+                }
+                panel.append("              </div>\n");
+                panel.append("            </li>\n");
+            }
+            panel.append("          </ul>\n");
+        }
+
+        panel.append("        </div>\n"); // end eval-detail
+        return panel.toString();
+    }
+
+    String renderDot(CompetenceAcquisition acq) {
         String cssClass  = levelClass(acq.getAbbreviation());
         String dotText   = "A+".equalsIgnoreCase(acq.getAbbreviation()) ? "+" : "";
 
@@ -238,7 +259,7 @@ public class EvaluationHtmlGenerator {
     // Level-dot helpers
     // -------------------------------------------------------------------------
 
-    private static String levelClass(String abbrev) {
+    static String levelClass(String abbrev) {
         if (abbrev == null) return "level-dot--ne";
         return switch (abbrev.trim().toUpperCase()) {
             case "A+"  -> "level-dot--aplus";

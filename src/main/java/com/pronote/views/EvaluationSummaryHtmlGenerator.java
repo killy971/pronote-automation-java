@@ -1,5 +1,6 @@
 package com.pronote.views;
 
+import com.pronote.domain.CompetenceAcquisition;
 import com.pronote.domain.CompetenceEvaluation;
 
 import java.time.LocalDate;
@@ -7,35 +8,33 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * Generates a self-contained HTML5 summary page for competence evaluations,
- * organised by trimester (latest first), then by subject (alphabetical), then
- * by evaluation date descending within each subject.
+ * organised by trimester (latest first), then by subject (alphabetical).
  *
- * <p>The card design, CSS, and detail dialog are shared with
- * {@link EvaluationHtmlGenerator}: the same {@code .eval-card} markup is
- * reused via {@link EvaluationHtmlGenerator#renderCard(CompetenceEvaluation)},
- * and the base CSS is embedded verbatim so both pages look identical at the
- * card level.
+ * <p>Within each subject block the subject name and teacher are shown once as a
+ * header; individual evaluations are then listed as compact single-line rows
+ * (date + name + level dots) without repeating those fields.  Tapping/clicking
+ * a row still opens the same full detail dialog as the flat list page.
  *
- * <p>Additional CSS for the period/subject grouping (period titles, subject
- * headings) is appended via {@link #SUMMARY_CSS}.
+ * <p>The base CSS and JS are shared with {@link EvaluationHtmlGenerator}; a small
+ * {@link #SUMMARY_CSS} block appended for period/subject/compact-row layout.
  */
 public class EvaluationSummaryHtmlGenerator {
 
+    private static final DateTimeFormatter SHORT_DATE_FMT =
+        DateTimeFormatter.ofPattern("d MMM", Locale.FRENCH);
     private static final DateTimeFormatter DATETIME_FMT =
         DateTimeFormatter.ofPattern("d MMMM yyyy '\u00e0' HH'h'mm", Locale.FRENCH);
     private static final Pattern DIGIT_PATTERN = Pattern.compile("\\d+");
 
-    private final EvaluationHtmlGenerator cardRenderer = new EvaluationHtmlGenerator();
+    private final EvaluationHtmlGenerator helper = new EvaluationHtmlGenerator();
 
     // -------------------------------------------------------------------------
     // Public API
@@ -103,7 +102,7 @@ public class EvaluationSummaryHtmlGenerator {
             + "    </div>\n"
             + "  </dialog>\n"
             + "\n"
-            + "  <script>" + EvaluationHtmlGenerator.JS + "</script>\n"
+            + "  <script>" + SUMMARY_JS + "</script>\n"
             + "</body>\n"
             + "</html>\n";
     }
@@ -147,18 +146,79 @@ public class EvaluationSummaryHtmlGenerator {
         String color = EvaluationHtmlGenerator.ACCENT_COLORS[
             Math.abs(subject.hashCode()) % EvaluationHtmlGenerator.ACCENT_COLORS.length];
 
+        // Collect unique, non-blank teacher names for this group
+        String teachers = forSubject.stream()
+            .map(CompetenceEvaluation::getTeacher)
+            .filter(t -> t != null && !t.isBlank())
+            .distinct()
+            .sorted()
+            .reduce((a, b) -> a + ", " + b)
+            .orElse(null);
+
         StringBuilder sb = new StringBuilder();
         sb.append("        <div class=\"subject-group\">\n");
-        sb.append("          <h3 class=\"subject-group__title\" style=\"color:")
-            .append(color).append(";\">")
-            .append(EvaluationHtmlGenerator.esc(subject)).append("</h3>\n");
-        sb.append("          <div class=\"eval-list\">\n");
-        for (CompetenceEvaluation eval : forSubject) {
-            sb.append(cardRenderer.renderCard(eval));
+
+        // Subject title (once, with accent colour)
+        sb.append("          <div class=\"subject-group__header\" style=\"border-left-color:").append(color).append("\">\n");
+        sb.append("            <span class=\"subject-group__title\" style=\"color:").append(color).append(";\">")
+            .append(EvaluationHtmlGenerator.esc(subject)).append("</span>\n");
+        if (teachers != null) {
+            sb.append("            <span class=\"subject-group__teacher\">")
+                .append(EvaluationHtmlGenerator.esc(teachers)).append("</span>\n");
         }
         sb.append("          </div>\n");
+
+        // Compact eval rows (no subject/teacher repeated)
+        sb.append("          <div class=\"compact-list\">\n");
+        for (CompetenceEvaluation eval : forSubject) {
+            sb.append(renderCompactRow(eval));
+        }
+        sb.append("          </div>\n");
+
         sb.append("        </div>\n");
         return sb.toString();
+    }
+
+    private String renderCompactRow(CompetenceEvaluation eval) {
+        String dateStr = eval.getDate() != null ? eval.getDate().format(SHORT_DATE_FMT) : "";
+
+        List<CompetenceAcquisition> ordered = eval.getAcquisitions() == null
+            ? List.of()
+            : eval.getAcquisitions().stream()
+                .sorted(Comparator.comparingInt(CompetenceAcquisition::getOrder))
+                .toList();
+
+        StringBuilder row = new StringBuilder();
+        row.append("            <div class=\"eval-compact\" role=\"button\" tabindex=\"0\">\n");
+        row.append("              <div class=\"eval-compact__row\">\n");
+
+        // Date
+        if (!dateStr.isBlank()) {
+            row.append("                <time class=\"eval-compact__date\">")
+                .append(EvaluationHtmlGenerator.esc(dateStr)).append("</time>\n");
+        }
+
+        // Evaluation name
+        String name = (eval.getName() != null && !eval.getName().isBlank()) ? eval.getName() : "\u2014";
+        row.append("                <span class=\"eval-compact__name\">")
+            .append(EvaluationHtmlGenerator.esc(name)).append("</span>\n");
+
+        // Level dots
+        if (!ordered.isEmpty()) {
+            row.append("                <div class=\"eval-compact__dots\">\n");
+            for (CompetenceAcquisition acq : ordered) {
+                row.append("                  ").append(helper.renderDot(acq)).append("\n");
+            }
+            row.append("                </div>\n");
+        }
+
+        row.append("              </div>\n");
+
+        // Hidden detail panel for dialog (reused from EvaluationHtmlGenerator)
+        row.append(helper.renderDetailPanel(eval));
+
+        row.append("            </div>\n"); // end eval-compact
+        return row.toString();
     }
 
     // -------------------------------------------------------------------------
@@ -185,6 +245,39 @@ public class EvaluationSummaryHtmlGenerator {
     }
 
     // -------------------------------------------------------------------------
+    // Embedded JS (same as EvaluationHtmlGenerator but selects .eval-compact too)
+    // -------------------------------------------------------------------------
+
+    static final String SUMMARY_JS = """
+        (function () {
+          var dialog  = document.getElementById('eval-dialog');
+          var body    = document.getElementById('eval-dialog-body');
+          var closeBtn = document.getElementById('eval-dialog-close');
+
+          document.querySelectorAll('.eval-card, .eval-compact').forEach(function (card) {
+            card.addEventListener('click', function () {
+              var detail = card.querySelector('.eval-detail');
+              if (!detail) return;
+              body.innerHTML = '';
+              var clone = detail.cloneNode(true);
+              clone.removeAttribute('hidden');
+              body.appendChild(clone);
+              dialog.showModal();
+            });
+            card.addEventListener('keydown', function (e) {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
+            });
+          });
+
+          closeBtn.addEventListener('click', function () { dialog.close(); });
+
+          dialog.addEventListener('click', function (e) {
+            if (e.target === dialog) dialog.close();
+          });
+        })();
+        """;
+
+    // -------------------------------------------------------------------------
     // Additional embedded CSS (appended after EvaluationHtmlGenerator.CSS)
     // -------------------------------------------------------------------------
 
@@ -197,7 +290,6 @@ public class EvaluationSummaryHtmlGenerator {
         .summary-main {
           display: flex;
           flex-direction: column;
-          gap: 0;
         }
 
         /* ----- Period section ----- */
@@ -220,12 +312,95 @@ public class EvaluationSummaryHtmlGenerator {
           margin-bottom: 1.25rem;
         }
 
-        .subject-group__title {
-          font-size: 0.75rem;
-          font-weight: 700;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
+        .subject-group__header {
+          display: flex;
+          align-items: baseline;
+          gap: 0.625rem;
+          border-left: 3px solid var(--border);
+          padding-left: 0.625rem;
           margin-bottom: 0.5rem;
+        }
+
+        .subject-group__title {
+          font-size: 0.8125rem;
+          font-weight: 700;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+        }
+
+        .subject-group__teacher {
+          font-size: 0.75rem;
+          color: var(--text-2);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        /* ----- Compact eval list ----- */
+        .compact-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+
+        /* ----- Compact eval row ----- */
+        .eval-compact {
+          display: flex;
+          flex-direction: column;
+          background: var(--surface);
+          border-radius: 8px;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, .05);
+          cursor: pointer;
+          overflow: hidden;
+          -webkit-tap-highlight-color: transparent;
+          user-select: none;
+          transition: box-shadow 0.15s ease;
+        }
+
+        .eval-compact:hover {
+          box-shadow: 0 3px 8px rgba(0, 0, 0, .1);
+        }
+
+        .eval-compact:active {
+          opacity: 0.85;
+        }
+
+        .eval-compact:focus-visible {
+          outline: 2px solid var(--text-2);
+          outline-offset: 2px;
+        }
+
+        .eval-compact__row {
+          display: flex;
+          align-items: center;
+          gap: 0.625rem;
+          padding: 0.5rem 0.75rem;
+          min-width: 0;
+        }
+
+        .eval-compact__date {
+          font-size: 0.75rem;
+          color: var(--text-2);
+          white-space: nowrap;
+          flex-shrink: 0;
+          min-width: 3.25rem;
+        }
+
+        .eval-compact__name {
+          font-size: 0.875rem;
+          color: var(--text-1);
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .eval-compact__dots {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.2rem;
+          flex-shrink: 0;
         }
         """;
 }
