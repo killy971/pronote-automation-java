@@ -428,7 +428,17 @@ public class TimetableHtmlGenerator {
               var clone = detail.cloneNode(true);
               clone.removeAttribute('hidden');
               body.appendChild(clone);
+
+              // Align dialog top with the lesson card's top
+              var card = chip.closest('.lesson');
+              var refTop = (card || chip).getBoundingClientRect().top;
+              dialog.style.top = Math.max(8, refTop) + 'px';
               dialog.showModal();
+              // Clamp so the dialog doesn't overflow the bottom of the viewport
+              var overflow = dialog.offsetTop + dialog.offsetHeight - window.innerHeight + 8;
+              if (overflow > 0) {
+                dialog.style.top = Math.max(8, refTop - overflow) + 'px';
+              }
             });
             chip.addEventListener('keydown', function (e) {
               if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chip.click(); }
@@ -768,9 +778,9 @@ public class TimetableHtmlGenerator {
         .lesson__assign-chip {
           display: inline-flex;
           align-items: center;
-          padding: 0.125rem 0.4375rem;
+          padding: 0.175rem 0.5rem;
           border-radius: 999px;
-          font-size: 0.625rem;
+          font-size: 0.75rem;
           font-weight: 700;
           letter-spacing: 0.03em;
           line-height: 1.4;
@@ -836,6 +846,13 @@ public class TimetableHtmlGenerator {
           overflow: hidden;
           box-shadow: 0 8px 40px rgba(0, 0, 0, .25);
           animation: dialog-in 0.2s ease;
+          /* JS-controlled vertical positioning — override browser default centering */
+          position: fixed;
+          inset: auto;
+          margin: 0;
+          left: 50%;
+          transform: translateX(-50%);
+          top: 10vh; /* fallback; overridden by JS */
         }
 
         dialog::backdrop {
@@ -844,8 +861,8 @@ public class TimetableHtmlGenerator {
         }
 
         @keyframes dialog-in {
-          from { opacity: 0; transform: translateY(12px) scale(0.97); }
-          to   { opacity: 1; transform: translateY(0)    scale(1); }
+          from { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.97); }
+          to   { opacity: 1; transform: translateX(-50%) translateY(0)    scale(1); }
         }
 
         @keyframes backdrop-in {

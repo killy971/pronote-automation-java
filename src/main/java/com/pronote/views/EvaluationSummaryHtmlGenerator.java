@@ -254,18 +254,29 @@ public class EvaluationSummaryHtmlGenerator {
           var body    = document.getElementById('eval-dialog-body');
           var closeBtn = document.getElementById('eval-dialog-close');
 
+          function openDialog(card) {
+            var detail = card.querySelector('.eval-detail');
+            if (!detail) return;
+            body.innerHTML = '';
+            var clone = detail.cloneNode(true);
+            clone.removeAttribute('hidden');
+            body.appendChild(clone);
+
+            // Align dialog top with the card's top
+            var refTop = card.getBoundingClientRect().top;
+            dialog.style.top = Math.max(8, refTop) + 'px';
+            dialog.showModal();
+            // Clamp so the dialog doesn't overflow the bottom of the viewport
+            var overflow = dialog.offsetTop + dialog.offsetHeight - window.innerHeight + 8;
+            if (overflow > 0) {
+              dialog.style.top = Math.max(8, refTop - overflow) + 'px';
+            }
+          }
+
           document.querySelectorAll('.eval-card, .eval-compact').forEach(function (card) {
-            card.addEventListener('click', function () {
-              var detail = card.querySelector('.eval-detail');
-              if (!detail) return;
-              body.innerHTML = '';
-              var clone = detail.cloneNode(true);
-              clone.removeAttribute('hidden');
-              body.appendChild(clone);
-              dialog.showModal();
-            });
+            card.addEventListener('click', function () { openDialog(card); });
             card.addEventListener('keydown', function (e) {
-              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDialog(card); }
             });
           });
 

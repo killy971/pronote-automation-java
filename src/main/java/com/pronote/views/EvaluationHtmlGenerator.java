@@ -305,19 +305,30 @@ public class EvaluationHtmlGenerator {
           var body    = document.getElementById('eval-dialog-body');
           var closeBtn = document.getElementById('eval-dialog-close');
 
+          function openDialog(card) {
+            var detail = card.querySelector('.eval-detail');
+            if (!detail) return;
+            body.innerHTML = '';
+            var clone = detail.cloneNode(true);
+            clone.removeAttribute('hidden');
+            body.appendChild(clone);
+
+            // Align dialog top with the card's top
+            var refTop = card.getBoundingClientRect().top;
+            dialog.style.top = Math.max(8, refTop) + 'px';
+            dialog.showModal();
+            // Clamp so the dialog doesn't overflow the bottom of the viewport
+            var overflow = dialog.offsetTop + dialog.offsetHeight - window.innerHeight + 8;
+            if (overflow > 0) {
+              dialog.style.top = Math.max(8, refTop - overflow) + 'px';
+            }
+          }
+
           // Open dialog when a card is clicked or activated via keyboard
           document.querySelectorAll('.eval-card').forEach(function (card) {
-            card.addEventListener('click', function () {
-              var detail = card.querySelector('.eval-detail');
-              if (!detail) return;
-              body.innerHTML = '';
-              var clone = detail.cloneNode(true);
-              clone.removeAttribute('hidden');
-              body.appendChild(clone);
-              dialog.showModal();
-            });
+            card.addEventListener('click', function () { openDialog(card); });
             card.addEventListener('keydown', function (e) {
-              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDialog(card); }
             });
           });
 
@@ -560,6 +571,13 @@ public class EvaluationHtmlGenerator {
           overflow: hidden;
           box-shadow: 0 8px 40px rgba(0, 0, 0, .25);
           animation: dialog-in 0.2s ease;
+          /* JS-controlled vertical positioning — override browser default centering */
+          position: fixed;
+          inset: auto;
+          margin: 0;
+          left: 50%;
+          transform: translateX(-50%);
+          top: 10vh; /* fallback; overridden by JS */
         }
 
         dialog::backdrop {
@@ -568,8 +586,8 @@ public class EvaluationHtmlGenerator {
         }
 
         @keyframes dialog-in {
-          from { opacity: 0; transform: translateY(12px) scale(0.97); }
-          to   { opacity: 1; transform: translateY(0)    scale(1); }
+          from { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.97); }
+          to   { opacity: 1; transform: translateX(-50%) translateY(0)    scale(1); }
         }
 
         @keyframes backdrop-in {
