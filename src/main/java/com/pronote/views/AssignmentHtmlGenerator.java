@@ -2,7 +2,6 @@ package com.pronote.views;
 
 import com.pronote.domain.Assignment;
 import com.pronote.domain.AttachmentRef;
-import com.pronote.domain.CompetenceEvaluation;
 import com.pronote.domain.TimetableEntry;
 
 import java.nio.file.Path;
@@ -57,18 +56,15 @@ public class AssignmentHtmlGenerator {
     /**
      * Generates the full HTML document.
      *
-     * @param assignments  all assignments (upcoming ones are filtered internally: dueDate >= today)
-     * @param timetable    full timetable snapshot; entries with {@code isEval=true} and a future
-     *                     date are shown as upcoming evaluations. Pass empty list if unavailable.
-     * @param manualEvals  competence evaluations from manual-entries.yaml (and from the snapshot);
-     *                     future-dated ones are merged with timetable evals in the banner and cards.
-     *                     Pass empty list if unavailable.
-     * @param outputDir    absolute, normalised output directory used to compute relative paths for
-     *                     local attachment links
+     * @param assignments all assignments (upcoming ones are filtered internally: dueDate >= today)
+     * @param timetable   full timetable snapshot (including any synthetic manual eval entries);
+     *                    entries with {@code isEval=true} and a future date are shown as upcoming
+     *                    evaluations in the banner and date-group cards. Pass empty list if unavailable.
+     * @param outputDir   absolute, normalised output directory used to compute relative paths for
+     *                    local attachment links
      * @return a complete, self-contained HTML5 document
      */
-    public String generate(List<Assignment> assignments, List<TimetableEntry> timetable,
-                           List<CompetenceEvaluation> manualEvals, Path outputDir) {
+    public String generate(List<Assignment> assignments, List<TimetableEntry> timetable, Path outputDir) {
         LocalDate today = LocalDate.now();
 
         List<Assignment> upcoming = assignments.stream()
@@ -78,7 +74,7 @@ public class AssignmentHtmlGenerator {
                 .thenComparing(a -> displaySubject(a)))
             .toList();
 
-        // Unify eval sources: timetable isEval entries + CompetenceEvaluation objects
+        // Build unified eval list from timetable entries with isEval=true (includes manual ones).
         List<EvalEntry> upcomingEvals = new ArrayList<>();
         for (TimetableEntry e : timetable) {
             if (e.isEval() && e.getStartTime() != null
@@ -88,15 +84,6 @@ public class AssignmentHtmlGenerator {
                 String label = e.getLessonLabel() != null && !e.getLessonLabel().isBlank()
                         ? e.getLessonLabel() : "\u00c9val. de comp\u00e9tences";
                 upcomingEvals.add(new EvalEntry(e.getStartTime().toLocalDate(), subject, label));
-            }
-        }
-        for (CompetenceEvaluation e : manualEvals) {
-            if (e.getDate() != null && !e.getDate().isBefore(today)) {
-                String subject = e.getEnrichedSubject() != null && !e.getEnrichedSubject().isBlank()
-                        ? e.getEnrichedSubject() : e.getSubject();
-                String label = e.getName() != null && !e.getName().isBlank()
-                        ? e.getName() : "\u00c9val. de comp\u00e9tences";
-                upcomingEvals.add(new EvalEntry(e.getDate(), subject, label));
             }
         }
         upcomingEvals.sort(Comparator.comparing(e -> e.date));

@@ -1,7 +1,8 @@
 package com.pronote.config;
 
 import com.pronote.domain.Assignment;
-import com.pronote.domain.CompetenceEvaluation;
+import com.pronote.domain.EntryStatus;
+import com.pronote.domain.TimetableEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.LoaderOptions;
@@ -17,17 +18,32 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Loads manually-defined assignments and competence evaluations from a YAML file.
+ * Loads manually-declared assignments and upcoming evaluations from a YAML file.
  *
- * <p>Intended for entries you know about but that teachers have not yet published on Pronote.
- * Manual entries are merged into the fetched lists before diff and snapshot, so they
- * participate in change detection: adding an entry fires a "new" notification, removing one
- * fires a "removed" notification.
+ * <p>Intended for work/tests you know about but that teachers have not yet published on Pronote.
+ *
+ * <h2>Terminology note — two distinct concepts named "evaluation"</h2>
+ * <ul>
+ *   <li><strong>Upcoming competence evaluation</strong> ({@code evaluations:} block in the YAML):
+ *       a future timetable event where the teacher will assess competences. Represented as a
+ *       synthetic {@link TimetableEntry} with {@code isEval=true}. Shows in the timetable day
+ *       view, in the eval count on the timetable summary card, and in the upcoming-eval banner
+ *       and date-group cards of the assignment view. Does NOT appear in the Bilan/Évaluations
+ *       view (that view is for past results only).</li>
+ *   <li><strong>Past competence evaluation result</strong> ({@link com.pronote.domain.CompetenceEvaluation}):
+ *       a completed assessment fetched from Pronote via {@code DernieresEvaluations}, containing
+ *       level scores (A/B/C/D/E) per competence item. Shown in the Bilan and Évaluations views.
+ *       Manual entries never produce this type.</li>
+ * </ul>
+ *
+ * <p>Manual entries are merged into the timetable list (evaluations) and assignments list before
+ * diff and snapshot, so they participate in change detection: adding an entry fires a "new"
+ * notification, removing one fires a "removed" notification.
  *
  * <p>All IDs are prefixed with {@code manual:} to prevent collision with Pronote session IDs.
  *
- * <p>If the file does not exist it is silently ignored. A missing required field ({@code subject},
- * {@code description}/{@code name}, {@code dueDate}/{@code date}) causes a fast failure.
+ * <p>If the file does not exist it is silently ignored. A missing required field causes a fast
+ * failure with a descriptive error message.
  */
 public class ManualEntryLoader {
 
@@ -63,16 +79,16 @@ public class ManualEntryLoader {
             }
         }
 
-        List<CompetenceEvaluation> evaluations = new ArrayList<>();
+        List<TimetableEntry> upcomingEvals = new ArrayList<>();
         if (file.getEvaluations() != null) {
             for (EvaluationEntry entry : file.getEvaluations()) {
-                evaluations.add(toEvaluation(entry, enricher));
+                upcomingEvals.add(toTimetableEntry(entry, enricher));
             }
         }
 
-        log.info("Loaded {} manual assignment(s) and {} manual evaluation(s)",
-                assignments.size(), evaluations.size());
-        return new ManualEntries(assignments, evaluations);
+        log.info("Loaded {} manual assignment(s) and {} manual upcoming evaluation(s)",
+                assignments.size(), upcomingEvals.size());
+        return new ManualEntries(assignments, upcomingEvals);
     }
 
     private static Assignment toAssignment(AssignmentEntry e, SubjectEnricher enricher) {
@@ -96,23 +112,32 @@ public class ManualEntryLoader {
         return a;
     }
 
-    private static CompetenceEvaluation toEvaluation(EvaluationEntry e, SubjectEnricher enricher) {
+    /**
+     * Converts a manual evaluation entry into a synthetic {@link TimetableEntry} with
+     * {@code isEval=true}. This makes it flow through all timetable-based pipelines:
+     * day view, summary eval count, and assignment view eval banner/cards.
+     *
+     * <p>{@code periodName} in the YAML is parsed but intentionally ignored — it has no
+     * equivalent in the timetable domain and is only meaningful for past evaluation results.
+     */
+    private static TimetableEntry toTimetableEntry(EvaluationEntry e, SubjectEnricher enricher) {
         requireField(e.getSubject(), "subject", "evaluation");
         requireField(e.getName(), "name", "evaluation");
         requireField(e.getDate(), "date", "evaluation");
 
         LocalDate date = parseDate(e.getDate(), "date");
 
-        CompetenceEvaluation ev = new CompetenceEvaluation();
-        ev.setId("manual:" + e.getSubject() + "@" + date + "@" + e.getName());
-        ev.setSubject(e.getSubject());
-        ev.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher()));
-        ev.setName(e.getName());
-        ev.setDate(date);
-        ev.setTeacher(e.getTeacher());
-        ev.setDescription(e.getDescription());
-        ev.setPeriodName(e.getPeriodName());
-        return ev;
+        TimetableEntry entry = new TimetableEntry();
+        entry.setId("manual:" + e.getSubject() + "@" + date + "@" + e.getName());
+        entry.setSubject(e.getSubject());
+        entry.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher()));
+        entry.setTeacher(e.getTeacher());
+        entry.setStartTime(date.atStartOfDay());
+        entry.setEval(true);
+        entry.setLessonLabel(e.getName());
+        entry.setMemo(e.getDescription());
+        entry.setStatus(EntryStatus.NORMAL);
+        return entry;
     }
 
     private static void requireField(String value, String field, String entryType) {
@@ -137,15 +162,16 @@ public class ManualEntryLoader {
 
     public static class ManualEntries {
         private final List<Assignment> assignments;
-        private final List<CompetenceEvaluation> evaluations;
+        /** Synthetic timetable entries with {@code isEval=true} — not past evaluation results. */
+        private final List<TimetableEntry> upcomingEvals;
 
-        ManualEntries(List<Assignment> assignments, List<CompetenceEvaluation> evaluations) {
+        ManualEntries(List<Assignment> assignments, List<TimetableEntry> upcomingEvals) {
             this.assignments = assignments;
-            this.evaluations = evaluations;
+            this.upcomingEvals = upcomingEvals;
         }
 
         public List<Assignment> getAssignments() { return assignments; }
-        public List<CompetenceEvaluation> getEvaluations() { return evaluations; }
+        public List<TimetableEntry> getUpcomingEvals() { return upcomingEvals; }
     }
 
     // -------------------------------------------------------------------------
@@ -184,11 +210,11 @@ public class ManualEntryLoader {
 
     public static class EvaluationEntry {
         private String subject;
-        private String name;
-        private String date;
-        private String teacher;      // optional — enables teacher-specific enrichment rules
-        private String description;  // optional — shown in views/notifications
-        private String periodName;   // optional — e.g. "Trimestre 3"
+        private String name;           // required — the evaluation title; shown as lessonLabel in timetable
+        private String date;           // required — ISO date YYYY-MM-DD
+        private String teacher;        // optional — enables teacher-specific enrichment rules
+        private String description;    // optional — shown as memo in timetable day view
+        private String periodName;     // optional — parsed but not used (no timetable equivalent)
 
         public String getSubject() { return subject; }
         public void setSubject(String subject) { this.subject = subject; }

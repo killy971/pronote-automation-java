@@ -2,7 +2,6 @@ package com.pronote.views;
 
 import com.pronote.config.AppConfig;
 import com.pronote.domain.Assignment;
-import com.pronote.domain.CompetenceEvaluation;
 import com.pronote.domain.TimetableEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,14 +35,11 @@ public class AssignmentViewRenderer {
      * Generates the assignment HTML view and writes it to the configured output directory.
      *
      * @param assignments the full assignment snapshot (upcoming ones are filtered internally)
-     * @param timetable   full timetable snapshot; entries with {@code isEval=true} and a future
-     *                    date are shown as upcoming evaluations. Pass empty list if unavailable.
-     * @param evaluations competence evaluations (Pronote snapshot + manual entries); future-dated
-     *                    ones are merged with timetable evals in the banner and date groups.
-     *                    Pass empty list if unavailable.
+     * @param timetable   full timetable snapshot (including synthetic manual eval entries);
+     *                    entries with {@code isEval=true} and a future date are shown as upcoming
+     *                    evaluations. Pass an empty list when timetable data is unavailable.
      */
-    public void render(List<Assignment> assignments, List<TimetableEntry> timetable,
-                       List<CompetenceEvaluation> evaluations) {
+    public void render(List<Assignment> assignments, List<TimetableEntry> timetable) {
         Path outDir = Path.of(viewConfig.getOutputDirectory()).toAbsolutePath().normalize();
         try {
             Files.createDirectories(outDir);
@@ -52,7 +48,7 @@ public class AssignmentViewRenderer {
         }
 
         log.info("Generating assignment view in {}", outDir);
-        String html = generator.generate(assignments, timetable, evaluations, outDir);
+        String html = generator.generate(assignments, timetable, outDir);
         Path file = outDir.resolve("index.html");
         try {
             Files.writeString(file, html, StandardCharsets.UTF_8);

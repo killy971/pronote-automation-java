@@ -1,5 +1,18 @@
 # CLAUDE.md — Project Guidance for AI Sessions
 
+## Terminology — "Evaluation" means two different things
+
+**Do not confuse these two concepts. They are completely separate in the codebase.**
+
+| Term | Java type | Source | Where it appears |
+|---|---|---|---|
+| **Upcoming competence evaluation** | `TimetableEntry` (`isEval=true`) | Timetable scraper (`PageEmploiDuTemps`) or `manual-entries.yaml` `evaluations:` block | Timetable day view (badge), timetable summary eval count, assignment view eval banner + cards |
+| **Past competence evaluation result** | `CompetenceEvaluation` | `DernieresEvaluations` API | Bilan view (`evaluations/index.html`), evaluation summary view |
+
+Manual entries in `manual-entries.yaml` under `evaluations:` are **upcoming timetable events**, converted to synthetic `TimetableEntry(isEval=true)` by `ManualEntryLoader`. They never produce `CompetenceEvaluation` objects and must never be merged into the evaluations/bilan pipeline.
+
+---
+
 ## Project Overview
 
 `pronote-automation-java` is a **short-lived, scheduled Java 21 CLI application** that:

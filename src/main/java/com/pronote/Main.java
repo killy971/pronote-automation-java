@@ -216,10 +216,10 @@ public class Main {
             merged.addAll(manualEntries.getAssignments());
             assignments = merged;
         }
-        if (features.isEvaluations() && !manualEntries.getEvaluations().isEmpty()) {
-            List<CompetenceEvaluation> merged = new ArrayList<>(evaluations);
-            merged.addAll(manualEntries.getEvaluations());
-            evaluations = merged;
+        if (features.isTimetable() && !manualEntries.getUpcomingEvals().isEmpty()) {
+            List<TimetableEntry> merged = new ArrayList<>(timetable);
+            merged.addAll(manualEntries.getUpcomingEvals());
+            timetable = merged;
         }
 
         // ---- 5. Load previous snapshots (only for enabled types) ----------
@@ -317,7 +317,7 @@ public class Main {
         // ---- 11. Generate static HTML assignment view ---------------------
         if (features.isAssignments() && config.getAssignmentView().isEnabled()) {
             log.info("Generating assignment HTML view...");
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments, timetable, evaluations);
+            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments, timetable);
         }
 
         // ---- 12. Generate static HTML evaluation view --------------------
@@ -408,7 +408,8 @@ public class Main {
         // competence evaluations into the assignment view.
         Optional<List<TimetableEntry>> timetableSnap =
                 snapshotStore.loadLatest("timetable", new TypeReference<>() {});
-        List<TimetableEntry> timetableData = timetableSnap.orElse(List.of());
+        List<TimetableEntry> timetableData = new ArrayList<>(timetableSnap.orElse(List.of()));
+        if (features.isTimetable()) timetableData.addAll(manualEntries.getUpcomingEvals());
 
         if (timetableViewEnabled) {
             if (timetableSnap.isEmpty()) {
@@ -420,14 +421,6 @@ public class Main {
             new TimetableViewRenderer(config.getTimetableView()).render(timetableData, assignmentsData);
         }
 
-        // Load evaluations eagerly — needed for both the assignment view (upcoming eval banner)
-        // and the evaluation view. Re-apply enrichment so pre-rule snapshots render correctly.
-        Optional<List<CompetenceEvaluation>> evaluationsSnap =
-                snapshotStore.loadLatest("evaluations", new TypeReference<>() {});
-        List<CompetenceEvaluation> evaluationsData = new ArrayList<>(evaluationsSnap.orElse(List.of()));
-        evaluationsData.forEach(e -> e.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher())));
-        if (features.isEvaluations()) evaluationsData.addAll(manualEntries.getEvaluations());
-
         if (assignmentViewEnabled) {
             if (assignmentsSnap.isEmpty()) {
                 throw new RuntimeException("No assignments snapshot found at "
@@ -435,13 +428,21 @@ public class Main {
                         + " — run 'make run' first to fetch data.");
             }
             log.info("Regenerating assignment view from snapshot ({} entries)...", assignmentsData.size());
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignmentsData, timetableData, evaluationsData);
+            new AssignmentViewRenderer(config.getAssignmentView()).render(assignmentsData, timetableData);
         }
 
         if (evaluationViewEnabled) {
-            if (evaluationsSnap.isEmpty() && manualEntries.getEvaluations().isEmpty()) {
+            // Evaluations view shows past competence results only — no manual entries here.
+            // See ManualEntryLoader for the distinction between upcoming evals (timetable)
+            // and past evaluation results (CompetenceEvaluation / Bilan view).
+            Optional<List<CompetenceEvaluation>> evaluationsSnap =
+                    snapshotStore.loadLatest("evaluations", new TypeReference<>() {});
+            if (evaluationsSnap.isEmpty()) {
                 log.warn("No evaluations snapshot found — skipping evaluation view regeneration.");
             } else {
+                List<CompetenceEvaluation> evaluationsData = new ArrayList<>(evaluationsSnap.get());
+                // Re-apply enrichment so snapshots saved before a rule was added still render correctly.
+                evaluationsData.forEach(e -> e.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher())));
                 log.info("Regenerating evaluation views from snapshot ({} entries)...", evaluationsData.size());
                 EvaluationViewRenderer evalRenderer = new EvaluationViewRenderer(config.getEvaluationView());
                 evalRenderer.render(evaluationsData);
@@ -596,7 +597,7 @@ public class Main {
 
         if (features.isAssignments() && config.getAssignmentView().isEnabled() && !assignments.isEmpty()) {
             log.info("Regenerating assignment HTML view...");
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments, timetable, evaluations);
+            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments, timetable);
         }
 
         if (features.isEvaluations() && config.getEvaluationView().isEnabled() && !evaluations.isEmpty()) {
