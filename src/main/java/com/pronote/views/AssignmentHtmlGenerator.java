@@ -114,26 +114,42 @@ public class AssignmentHtmlGenerator {
     // -------------------------------------------------------------------------
 
     private String renderUpcomingEvals(List<TimetableEntry> evals) {
+        // Group by date (list is already sorted ascending)
+        Map<LocalDate, List<TimetableEntry>> byDate = new LinkedHashMap<>();
+        for (TimetableEntry e : evals) {
+            byDate.computeIfAbsent(e.getStartTime().toLocalDate(), k -> new ArrayList<>()).add(e);
+        }
+
         StringBuilder sb = new StringBuilder();
         sb.append("    <section class=\"eval-section\">\n");
         sb.append("      <h2 class=\"eval-section__title\">\u00c9valuations de comp\u00e9tences \u00e0 venir</h2>\n");
-        sb.append("      <ul class=\"eval-list\">\n");
-        for (TimetableEntry e : evals) {
-            LocalDate date = e.getStartTime().toLocalDate();
-            String dateStr = capitalize(date.format(DATE_HEADER_FMT));
-            String dateAttr = date.format(DATE_ATTR_FMT);
-            String subject = e.getEnrichedSubject() != null && !e.getEnrichedSubject().isBlank()
-                ? e.getEnrichedSubject() : e.getSubject();
-            String color = ACCENT_COLORS[Math.abs(e.getSubject().hashCode()) % ACCENT_COLORS.length];
-            String label = e.getLessonLabel() != null ? e.getLessonLabel() : "\u00c9val. de comp\u00e9tences";
-            sb.append("        <li class=\"eval-item\" style=\"border-left-color:").append(color).append("\">\n");
-            sb.append("          <span class=\"eval-item__subject\">").append(esc(subject)).append("</span>\n");
-            sb.append("          <time class=\"eval-item__date\" datetime=\"").append(dateAttr).append("\">")
-              .append(esc(dateStr)).append("</time>\n");
-            sb.append("          <span class=\"badge badge--eval\">").append(esc(label)).append("</span>\n");
-            sb.append("        </li>\n");
+
+        for (Map.Entry<LocalDate, List<TimetableEntry>> dateEntry : byDate.entrySet()) {
+            LocalDate date = dateEntry.getKey();
+            sb.append("      <section class=\"date-group\" id=\"eval-").append(date.format(DATE_ATTR_FMT)).append("\">\n");
+            sb.append("        <h2 class=\"date-group__heading\"><time datetime=\"")
+              .append(date.format(DATE_ATTR_FMT)).append("\">")
+              .append(esc(capitalize(date.format(DATE_HEADER_FMT)))).append("</time></h2>\n");
+
+            for (TimetableEntry e : dateEntry.getValue()) {
+                String subject = e.getEnrichedSubject() != null && !e.getEnrichedSubject().isBlank()
+                    ? e.getEnrichedSubject() : e.getSubject();
+                String color = ACCENT_COLORS[Math.abs(e.getSubject().hashCode()) % ACCENT_COLORS.length];
+                String label = e.getLessonLabel() != null ? e.getLessonLabel() : "\u00c9val. de comp\u00e9tences";
+
+                sb.append("        <div class=\"subject-group\">\n");
+                sb.append("          <div class=\"subject-group__header\" style=\"border-left-color:").append(color).append("\">\n");
+                sb.append("            <span class=\"subject-group__name\">").append(esc(subject)).append("</span>\n");
+                sb.append("          </div>\n");
+                sb.append("          <div class=\"assignment-card\">\n");
+                sb.append("            <p class=\"assignment__description\">").append(esc(label)).append("</p>\n");
+                sb.append("          </div>\n");
+                sb.append("        </div>\n");
+            }
+
+            sb.append("      </section>\n");
         }
-        sb.append("      </ul>\n");
+
         sb.append("    </section>\n");
         return sb.toString();
     }
@@ -461,36 +477,6 @@ public class AssignmentHtmlGenerator {
           text-transform: uppercase;
           color: var(--bdg-eval-fg);
           margin-bottom: 0.625rem;
-        }
-
-        .eval-list {
-          list-style: none;
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-        }
-
-        .eval-item {
-          display: flex;
-          align-items: center;
-          gap: 0.625rem;
-          padding: 0.5rem 0.75rem;
-          background: var(--surface);
-          border-radius: 7px;
-          border-left: 3px solid transparent;
-        }
-
-        .eval-item__subject {
-          font-weight: 600;
-          font-size: 0.875rem;
-          color: var(--text-1);
-          flex: 1;
-        }
-
-        .eval-item__date {
-          font-size: 0.8125rem;
-          color: var(--text-2);
-          white-space: nowrap;
         }
 
         /* ----- Attachments ----- */
