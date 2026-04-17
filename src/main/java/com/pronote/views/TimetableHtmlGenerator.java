@@ -113,7 +113,11 @@ public class TimetableHtmlGenerator {
      * has a <em>different</em> subject — indicating a true class replacement. Same-subject pairs
      * (e.g. "cours maintenu" resolutions) carry a null sibling since no annotation is needed.
      */
-    record MergedEntry(TimetableEntry entry, TimetableEntry cancelledSibling) {}
+    record MergedEntry(TimetableEntry entry, TimetableEntry cancelledSibling, String extraEvalLabel) {
+        MergedEntry(TimetableEntry entry, TimetableEntry cancelledSibling) {
+            this(entry, cancelledSibling, null);
+        }
+    }
 
     /**
      * Collapses time-slot conflicts into single {@link MergedEntry} objects.
@@ -147,14 +151,41 @@ public class TimetableHtmlGenerator {
                 // Standalone cancellations — show as-is
                 cancelled.forEach(e -> result.add(new MergedEntry(e, null)));
             } else {
+                // Separate manual eval entries (synthetic, id starts with "manual:") from real ones.
+                // Manual evals at the same slot as a real same-subject entry are absorbed into
+                // that entry's extraEvalLabel rather than emitted as a second card.
+                Map<String, String> manualEvalBySubject = new java.util.LinkedHashMap<>();
+                List<TimetableEntry> realActive = new ArrayList<>();
                 for (TimetableEntry a : active) {
-                    // Attach a cancelled sibling only when subjects differ (real replacement).
-                    // Same-subject pairs (cours maintenu) need no annotation.
-                    TimetableEntry sibling = cancelled.stream()
-                        .filter(c -> !Objects.equals(c.getSubject(), a.getSubject()))
-                        .findFirst()
-                        .orElse(null);
-                    result.add(new MergedEntry(a, sibling));
+                    if (a.getId() != null && a.getId().startsWith("manual:")) {
+                        manualEvalBySubject.put(a.getSubject(), a.getLessonLabel());
+                    } else {
+                        realActive.add(a);
+                    }
+                }
+
+                if (realActive.isEmpty()) {
+                    // Only manual eval entries at this slot — emit each as its own card
+                    for (TimetableEntry a : active) {
+                        result.add(new MergedEntry(a, null));
+                    }
+                } else {
+                    for (TimetableEntry a : realActive) {
+                        TimetableEntry sibling = cancelled.stream()
+                            .filter(c -> !Objects.equals(c.getSubject(), a.getSubject()))
+                            .findFirst()
+                            .orElse(null);
+                        // Absorb same-subject manual eval; remaining unmatched ones stay in the map
+                        String extraEvalLabel = manualEvalBySubject.remove(a.getSubject());
+                        result.add(new MergedEntry(a, sibling, extraEvalLabel));
+                    }
+                    // Emit manual evals whose subject had no matching real entry at this slot
+                    for (TimetableEntry a : active) {
+                        if (a.getId() != null && a.getId().startsWith("manual:")
+                                && manualEvalBySubject.containsKey(a.getSubject())) {
+                            result.add(new MergedEntry(a, null));
+                        }
+                    }
                 }
             }
         }
@@ -253,8 +284,11 @@ public class TimetableHtmlGenerator {
             card.append("        <div class=\"lesson__memo\">").append(esc(e.getMemo())).append("</div>\n");
         }
 
-        // Status / test badges
+        // Status / test badges (+ absorbed manual eval label when present)
         List<String> badges = buildBadges(e);
+        if (me.extraEvalLabel() != null) {
+            badges.add(badge("eval", me.extraEvalLabel()));
+        }
         if (!badges.isEmpty()) {
             card.append("        <div class=\"lesson__footer\">\n");
             for (String b : badges) card.append("          ").append(b).append("\n");
@@ -617,7 +651,8 @@ public class TimetableHtmlGenerator {
 
         .lesson__footer {
           display: flex;
-          flex-wrap: wrap;
+          flex-direction: column;
+          align-items: flex-start;
           gap: 0.3rem;
           margin-top: 0.25rem;
         }
