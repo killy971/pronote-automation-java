@@ -393,12 +393,16 @@ public class Main {
         }
 
         SnapshotStore snapshotStore = new SnapshotStore(dataDir, config.getData().getArchiveRetainDays());
+        SubjectEnricher enricher = new SubjectEnricher(config.getSubjectEnrichment());
+        ManualEntryLoader.ManualEntries manualEntries = ManualEntryLoader.load(
+                Path.of(config.getManualEntries().getFile()), enricher);
 
         // Pre-load assignments snapshot — used to annotate timetable views even when the
         // standalone assignment view is disabled. Silent if the snapshot file is missing.
         Optional<List<Assignment>> assignmentsSnap =
                 snapshotStore.loadLatest("assignments", new TypeReference<>() {});
-        List<Assignment> assignmentsData = assignmentsSnap.orElse(List.of());
+        List<Assignment> assignmentsData = new ArrayList<>(assignmentsSnap.orElse(List.of()));
+        if (features.isAssignments()) assignmentsData.addAll(manualEntries.getAssignments());
 
         // Pre-load timetable snapshot — needed for timetable views and to inject upcoming
         // competence evaluations into the assignment view.
@@ -427,21 +431,23 @@ public class Main {
         }
 
         if (evaluationViewEnabled) {
-            Optional<List<CompetenceEvaluation>> evaluations =
+            Optional<List<CompetenceEvaluation>> evaluationsSnap =
                     snapshotStore.loadLatest("evaluations", new TypeReference<>() {});
-            if (evaluations.isEmpty()) {
+            if (evaluationsSnap.isEmpty() && manualEntries.getEvaluations().isEmpty()) {
                 log.warn("No evaluations snapshot found — skipping evaluation view regeneration.");
             } else {
                 // Re-apply subject enrichment from current config rules so that snapshots
                 // saved before a rule was added (or before teacherPrefixes was configured)
                 // still render with correct enrichedSubject values in --mode views.
-                SubjectEnricher enricher = new SubjectEnricher(config.getSubjectEnrichment());
-                evaluations.get().forEach(e ->
+                List<CompetenceEvaluation> evaluationsData =
+                        new ArrayList<>(evaluationsSnap.orElse(List.of()));
+                evaluationsData.forEach(e ->
                         e.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher())));
-                log.info("Regenerating evaluation views from snapshot ({} entries)...", evaluations.get().size());
+                if (features.isEvaluations()) evaluationsData.addAll(manualEntries.getEvaluations());
+                log.info("Regenerating evaluation views from snapshot ({} entries)...", evaluationsData.size());
                 EvaluationViewRenderer evalRenderer = new EvaluationViewRenderer(config.getEvaluationView());
-                evalRenderer.render(evaluations.get());
-                evalRenderer.renderSummary(evaluations.get());
+                evalRenderer.render(evaluationsData);
+                evalRenderer.renderSummary(evaluationsData);
             }
         }
 
