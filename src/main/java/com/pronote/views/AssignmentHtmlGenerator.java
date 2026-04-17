@@ -11,9 +11,11 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -176,31 +178,35 @@ public class AssignmentHtmlGenerator {
         for (Assignment a : dayAssignments) {
             bySubject.computeIfAbsent(displaySubject(a), k -> new ArrayList<>()).add(a);
         }
-        for (Map.Entry<String, List<Assignment>> subjectEntry : bySubject.entrySet()) {
-            sb.append(renderSubjectGroup(subjectEntry.getKey(), subjectEntry.getValue(), outputDir));
+
+        // Evals indexed by display subject so they can be merged into matching assignment groups
+        Map<String, List<TimetableEntry>> evalsBySubject = new LinkedHashMap<>();
+        for (TimetableEntry e : dayEvals) {
+            evalsBySubject.computeIfAbsent(evalDisplaySubject(e), k -> new ArrayList<>()).add(e);
         }
 
-        // Synthetic eval cards appended after regular assignments
-        for (TimetableEntry e : dayEvals) {
-            String subject = e.getEnrichedSubject() != null && !e.getEnrichedSubject().isBlank()
-                ? e.getEnrichedSubject() : e.getSubject();
-            String color = ACCENT_COLORS[Math.abs(e.getSubject().hashCode()) % ACCENT_COLORS.length];
-            String label = e.getLessonLabel() != null ? e.getLessonLabel() : "\u00c9val. de comp\u00e9tences";
-            sb.append("        <div class=\"subject-group\">\n");
-            sb.append("          <div class=\"subject-group__header\" style=\"border-left-color:").append(color).append("\">\n");
-            sb.append("            <span class=\"subject-group__name\">").append(esc(subject)).append("</span>\n");
-            sb.append("          </div>\n");
-            sb.append("          <div class=\"assignment-card assignment-card--eval\">\n");
-            sb.append("            <p class=\"assignment__description\">").append(esc(label)).append("</p>\n");
-            sb.append("          </div>\n");
-            sb.append("        </div>\n");
+        // Render assignment groups, injecting evals whose subject matches
+        Set<String> mergedEvalSubjects = new LinkedHashSet<>();
+        for (Map.Entry<String, List<Assignment>> subjectEntry : bySubject.entrySet()) {
+            String subject = subjectEntry.getKey();
+            List<TimetableEntry> matchingEvals = evalsBySubject.getOrDefault(subject, List.of());
+            sb.append(renderSubjectGroup(subject, subjectEntry.getValue(), matchingEvals, outputDir));
+            if (!matchingEvals.isEmpty()) mergedEvalSubjects.add(subject);
+        }
+
+        // Evals whose subject had no assignments that day get their own standalone group
+        for (Map.Entry<String, List<TimetableEntry>> evalEntry : evalsBySubject.entrySet()) {
+            if (!mergedEvalSubjects.contains(evalEntry.getKey())) {
+                sb.append(renderSubjectGroup(evalEntry.getKey(), List.of(), evalEntry.getValue(), outputDir));
+            }
         }
 
         sb.append("      </section>\n");
         return sb.toString();
     }
 
-    private String renderSubjectGroup(String subject, List<Assignment> assignments, Path outputDir) {
+    private String renderSubjectGroup(String subject, List<Assignment> assignments,
+                                       List<TimetableEntry> evals, Path outputDir) {
         String color = ACCENT_COLORS[Math.abs(subject.hashCode()) % ACCENT_COLORS.length];
         StringBuilder sb = new StringBuilder();
 
@@ -212,6 +218,13 @@ public class AssignmentHtmlGenerator {
 
         for (Assignment a : assignments) {
             sb.append(renderAssignmentCard(a, outputDir));
+        }
+
+        for (TimetableEntry e : evals) {
+            String label = e.getLessonLabel() != null ? e.getLessonLabel() : "\u00c9val. de comp\u00e9tences";
+            sb.append("          <div class=\"assignment-card assignment-card--eval\">\n");
+            sb.append("            <p class=\"assignment__description\">").append(esc(label)).append("</p>\n");
+            sb.append("          </div>\n");
         }
 
         sb.append("        </div>\n");
@@ -299,6 +312,11 @@ public class AssignmentHtmlGenerator {
     private static String displaySubject(Assignment a) {
         String e = a.getEnrichedSubject();
         return (e != null && !e.isBlank()) ? e : a.getSubject();
+    }
+
+    private static String evalDisplaySubject(TimetableEntry e) {
+        String enriched = e.getEnrichedSubject();
+        return (enriched != null && !enriched.isBlank()) ? enriched : e.getSubject();
     }
 
     private static String capitalize(String s) {
