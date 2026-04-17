@@ -1,0 +1,182 @@
+# manual-entries.yaml — manually-declared assignments and upcoming evaluations
+#
+# Use this file for work you know about but that teachers have not yet published on Pronote.
+# Copy to manual-entries.yaml (same directory as config.yaml) and edit as needed.
+# The file is silently ignored if absent.
+#
+# IMPORTANT: subject values must match Pronote's raw subject strings exactly (all-caps,
+# with accents as Pronote returns them). Use the values documented below.
+# teacher values must also match exactly (used to select teacher-specific enrichment rules,
+# e.g. the Histoire / Géographie split). See the teacher reference table below.
+#
+# All dates are ISO format: YYYY-MM-DD
+#
+# Manual entries behave like Pronote entries: adding one triggers a "new" push/email
+# notification on the next run; removing one triggers a "removed" notification.
+#
+# ─── SUBJECT & TEACHER REFERENCE ────────────────────────────────────────────
+#
+#   subject (raw Pronote)       enrichedSubject      teacher (timetable form)
+#   ────────────────────────    ─────────────────    ─────────────────────────
+#   MATHEMATIQUES               Mathématiques        AUBRY S.
+#   FRANCAIS                    Français             LANDEMAINE M.
+#   HISTOIRE-GEOGRAPHIE         Histoire             BUKOWIECKI J.   ← use teacher to disambiguate
+#   HISTOIRE-GEOGRAPHIE         Géographie           LATZKE W.       ← use teacher to disambiguate
+#   LANGUE & LITTÉRATURE        Langue & littérature PEREZ M.
+#   ANGLAIS LV1                 Anglais LV1          PEREZ M.
+#   PHYSIQUE-CHIMIE             PHYSIQUE-CHIMIE      LESAUVAGE S.
+#   SCIENCES VIE & TERRE        SCIENCES VIE & TERRE MUSSARD C.
+#   ARTS PLASTIQUES             Arts plastiques      LEROUX S.
+#   MUSIQUE                     Musique              PEREZ P.
+#   ED.PHYSIQUE & SPORT.        EPS                  PLANEZ J.
+#
+#   Note: subjects without an enrichment rule (PHYSIQUE-CHIMIE, SCIENCES VIE & TERRE)
+#   display as-is in views and notifications.
+#
+#   For evaluations, Pronote stores teacher names with a civil title prefix:
+#     "Mme AUBRY S.", "M. BUKOWIECKI J.", "Mme LANDEMAINE M.", "M. LATZKE W.",
+#     "M. PEREZ M.", "M. LESAUVAGE S.", "Mme MUSSARD C.", "M. LEROUX S.",
+#     "M. PEREZ P.", "M. PLANEZ J."
+#   Both the prefixed form ("Mme AUBRY S.") and the bare form ("AUBRY S.") are accepted
+#   in manual entries — the enrichment rules strip the prefix automatically.
+#
+# ─── PERIOD NAMES (for evaluations) ─────────────────────────────────────────
+#
+#   "Trimestre 1"  (Sept – Dec)
+#   "Trimestre 2"  (Jan – Mar)
+#   "Trimestre 3"  (Apr – Jun)
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+assignments:
+
+  # ── Minimal example (only required fields) ───────────────────────────────
+  - subject: "MATHEMATIQUES"
+    description: "DS sur les fractions et nombres mixtes"
+    dueDate: "2026-04-25"
+
+  # ── With optional assignedDate ────────────────────────────────────────────
+  - subject: "FRANCAIS"
+    description: "Lire L'Odyssée pages 57 à 85 et compléter le livret"
+    dueDate: "2026-04-28"
+    assignedDate: "2026-04-17"   # when the work was given; defaults to dueDate if omitted
+
+  # ── Histoire — teacher disambiguates enrichment (→ "Histoire") ───────────
+  - subject: "HISTOIRE-GEOGRAPHIE"
+    description: "Apprendre le cours sur la naissance du monothéisme"
+    dueDate: "2026-04-24"
+
+  # ── Géographie — no teacher needed in assignments (no timetable cross-ref for manual) ──
+  - subject: "HISTOIRE-GEOGRAPHIE"
+    description: "Réviser les capitales européennes pour interrogation orale"
+    dueDate: "2026-04-29"
+
+  # ── Sciences ──────────────────────────────────────────────────────────────
+  - subject: "SCIENCES VIE & TERRE"
+    description: "Préparer le contrôle sur les chaînes alimentaires"
+    dueDate: "2026-04-30"
+
+  - subject: "PHYSIQUE-CHIMIE"
+    description: "Réviser le chapitre sur l'énergie (exercices 1 à 5)"
+    dueDate: "2026-04-23"
+
+  # ── English ───────────────────────────────────────────────────────────────
+  - subject: "LANGUE & LITTÉRATURE"
+    description: "Read The Giver chapters 10–12 and complete workbook p. 7"
+    dueDate: "2026-04-22"
+
+  - subject: "ANGLAIS LV1"
+    description: "Vocabulary list unit 8 — learn 20 words"
+    dueDate: "2026-04-25"
+
+  # ── Arts ──────────────────────────────────────────────────────────────────
+  - subject: "ARTS PLASTIQUES"
+    description: "Finir le projet Aéropostale — coloriage et légendes"
+    dueDate: "2026-04-28"
+
+  - subject: "MUSIQUE"
+    description: "Apprendre le solfège — exercices p. 12 à 14"
+    dueDate: "2026-04-24"
+
+  - subject: "ED.PHYSIQUE & SPORT."
+    description: "Apporter tenue de sport et chaussures"
+    dueDate: "2026-04-22"
+
+
+evaluations:
+
+  # ── Minimal example (only required fields) ───────────────────────────────
+  - subject: "MATHEMATIQUES"
+    name: "Test nombres mixtes et fractions d'une quantité"
+    date: "2026-04-25"
+
+  # ── With all optional fields ──────────────────────────────────────────────
+  - subject: "MATHEMATIQUES"
+    name: "DS 3 - fractions et pourcentages"
+    date: "2026-05-06"
+    teacher: "Mme AUBRY S."      # optional — enables teacher-specific enrichment rules
+    description: "Chapitres 6 et 7 — fractions, nombres mixtes, pourcentages"
+    periodName: "Trimestre 3"    # optional — "Trimestre 1" / "Trimestre 2" / "Trimestre 3"
+
+  # ── Français ──────────────────────────────────────────────────────────────
+  - subject: "FRANCAIS"
+    name: "Evaluation finale séquence 4 — L'Odyssée"
+    date: "2026-05-12"
+    teacher: "Mme LANDEMAINE M."
+    description: "Compréhension de texte + questions de grammaire"
+    periodName: "Trimestre 3"
+
+  - subject: "FRANCAIS"
+    name: "Dictée 4"
+    date: "2026-04-28"
+    teacher: "Mme LANDEMAINE M."
+    periodName: "Trimestre 3"
+
+  # ── Histoire (teacher → enrichedSubject = "Histoire") ────────────────────
+  - subject: "HISTOIRE-GEOGRAPHIE"
+    name: "Rome des origines à l'Empire — contrôle de cours"
+    date: "2026-04-29"
+    teacher: "M. BUKOWIECKI J."
+    periodName: "Trimestre 3"
+
+  # ── Géographie (teacher → enrichedSubject = "Géographie") ────────────────
+  - subject: "HISTOIRE-GEOGRAPHIE"
+    name: "Living in Low Density Spaces — test"
+    date: "2026-05-05"
+    teacher: "M. LATZKE W."
+    periodName: "Trimestre 3"
+
+  # ── Langue & Littérature ─────────────────────────────────────────────────
+  - subject: "LANGUE & LITTÉRATURE"
+    name: "The Giver: Final Exam"
+    date: "2026-05-08"
+    teacher: "M. PEREZ M."
+    periodName: "Trimestre 3"
+
+  # ── Sciences Vie & Terre ─────────────────────────────────────────────────
+  - subject: "SCIENCES VIE & TERRE"
+    name: "Evaluation La place des êtres vivants dans les chaînes alimentaires"
+    date: "2026-04-30"
+    teacher: "Mme MUSSARD C."
+    periodName: "Trimestre 3"
+
+  # ── Physique-Chimie ───────────────────────────────────────────────────────
+  - subject: "PHYSIQUE-CHIMIE"
+    name: "DS énergie et transformations"
+    date: "2026-04-23"
+    teacher: "M. LESAUVAGE S."
+    periodName: "Trimestre 3"
+
+  # ── Arts Plastiques ───────────────────────────────────────────────────────
+  - subject: "ARTS PLASTIQUES"
+    name: "Questions de cours"
+    date: "2026-05-07"
+    teacher: "M. LEROUX S."
+    periodName: "Trimestre 3"
+
+  # ── Musique ───────────────────────────────────────────────────────────────
+  - subject: "MUSIQUE"
+    name: "Solfège"
+    date: "2026-05-14"
+    teacher: "M. PEREZ P."
+    periodName: "Trimestre 3"

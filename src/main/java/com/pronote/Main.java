@@ -7,6 +7,7 @@ import com.pronote.auth.SessionStore;
 import com.pronote.client.PronoteHttpClient;
 import com.pronote.config.AppConfig;
 import com.pronote.config.ConfigLoader;
+import com.pronote.config.ManualEntryLoader;
 import com.pronote.config.SubjectEnricher;
 import com.pronote.domain.Assignment;
 import com.pronote.domain.EntryStatus;
@@ -205,6 +206,20 @@ public class Main {
             }
         } else {
             log.debug("School-life feature disabled — skipping.");
+        }
+
+        // ---- 4b. Merge manual entries (from manual-entries.yaml, if present) ----
+        ManualEntryLoader.ManualEntries manualEntries = ManualEntryLoader.load(
+                Path.of(config.getManualEntries().getFile()), subjectEnricher);
+        if (features.isAssignments() && !manualEntries.getAssignments().isEmpty()) {
+            List<Assignment> merged = new ArrayList<>(assignments);
+            merged.addAll(manualEntries.getAssignments());
+            assignments = merged;
+        }
+        if (features.isEvaluations() && !manualEntries.getEvaluations().isEmpty()) {
+            List<CompetenceEvaluation> merged = new ArrayList<>(evaluations);
+            merged.addAll(manualEntries.getEvaluations());
+            evaluations = merged;
         }
 
         // ---- 5. Load previous snapshots (only for enabled types) ----------

@@ -19,6 +19,7 @@ public class AppConfig {
     private EvaluationViewConfig evaluationView = new EvaluationViewConfig();
     private SchoolLifeViewConfig schoolLifeView = new SchoolLifeViewConfig();
     private ViewPublishConfig viewPublish = new ViewPublishConfig();
+    private ManualEntriesConfig manualEntries = new ManualEntriesConfig();
 
     // -------------------------------------------------------------------------
     // Getters / setters (plain, for SnakeYAML)
@@ -56,6 +57,9 @@ public class AppConfig {
 
     public ViewPublishConfig getViewPublish() { return viewPublish; }
     public void setViewPublish(ViewPublishConfig viewPublish) { this.viewPublish = viewPublish; }
+
+    public ManualEntriesConfig getManualEntries() { return manualEntries; }
+    public void setManualEntries(ManualEntriesConfig manualEntries) { this.manualEntries = manualEntries; }
 
     // =========================================================================
     // Nested config classes
@@ -410,6 +414,17 @@ public class AppConfig {
 
         public int getMaxEntries() { return maxEntries; }
         public void setMaxEntries(int maxEntries) { this.maxEntries = maxEntries; }
+    }
+
+    /**
+     * Path to the optional manual entries YAML file.
+     * If the file does not exist, it is silently ignored (no error).
+     */
+    public static class ManualEntriesConfig {
+        private String file = "./manual-entries.yaml";
+
+        public String getFile() { return file; }
+        public void setFile(String file) { this.file = file; }
     }
 
     /** A single subject-enrichment mapping rule. {@code teacher} is optional. */
