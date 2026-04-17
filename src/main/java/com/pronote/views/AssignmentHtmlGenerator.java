@@ -2,6 +2,7 @@ package com.pronote.views;
 
 import com.pronote.domain.Assignment;
 import com.pronote.domain.AttachmentRef;
+import com.pronote.domain.TimetableEntry;
 
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -53,11 +54,14 @@ public class AssignmentHtmlGenerator {
      * Generates the full HTML document.
      *
      * @param assignments all assignments (upcoming ones are filtered internally: dueDate >= today)
+     * @param timetable   full timetable snapshot; competence evaluations (isEval=true, future date)
+     *                    are shown in a dedicated section above assignments. Pass empty list if
+     *                    timetable data is unavailable.
      * @param outputDir   absolute, normalised output directory used to compute relative paths for
      *                    local attachment links
      * @return a complete, self-contained HTML5 document
      */
-    public String generate(List<Assignment> assignments, Path outputDir) {
+    public String generate(List<Assignment> assignments, List<TimetableEntry> timetable, Path outputDir) {
         LocalDate today = LocalDate.now();
 
         List<Assignment> upcoming = assignments.stream()
@@ -65,6 +69,15 @@ public class AssignmentHtmlGenerator {
             .sorted(Comparator.comparing(Assignment::getDueDate)
                 .thenComparing(a -> displaySubject(a)))
             .toList();
+
+        List<TimetableEntry> upcomingEvals = timetable.stream()
+            .filter(e -> e.isEval()
+                      && e.getStartTime() != null
+                      && !e.getStartTime().toLocalDate().isBefore(today))
+            .sorted(Comparator.comparing(TimetableEntry::getStartTime))
+            .toList();
+
+        String evalSection = upcomingEvals.isEmpty() ? "" : renderUpcomingEvals(upcomingEvals);
 
         String content = upcoming.isEmpty()
             ? "      <p class=\"empty-state\">Aucun devoir \u00e0 venir.</p>\n"
@@ -87,6 +100,7 @@ public class AssignmentHtmlGenerator {
             + "      <h1 class=\"page-header__title\">Devoirs \u00e0 venir</h1>\n"
             + "      <p class=\"page-header__subtitle\">Mis \u00e0 jour le " + generatedAt + "</p>\n"
             + "    </header>\n"
+            + evalSection
             + "    <main class=\"assignments\">\n"
             + content
             + "    </main>\n"
@@ -98,6 +112,31 @@ public class AssignmentHtmlGenerator {
     // -------------------------------------------------------------------------
     // Rendering
     // -------------------------------------------------------------------------
+
+    private String renderUpcomingEvals(List<TimetableEntry> evals) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("    <section class=\"eval-section\">\n");
+        sb.append("      <h2 class=\"eval-section__title\">\u00c9valuations de comp\u00e9tences \u00e0 venir</h2>\n");
+        sb.append("      <ul class=\"eval-list\">\n");
+        for (TimetableEntry e : evals) {
+            LocalDate date = e.getStartTime().toLocalDate();
+            String dateStr = capitalize(date.format(DATE_HEADER_FMT));
+            String dateAttr = date.format(DATE_ATTR_FMT);
+            String subject = e.getEnrichedSubject() != null && !e.getEnrichedSubject().isBlank()
+                ? e.getEnrichedSubject() : e.getSubject();
+            String color = ACCENT_COLORS[Math.abs(e.getSubject().hashCode()) % ACCENT_COLORS.length];
+            String label = e.getLessonLabel() != null ? e.getLessonLabel() : "\u00c9val. de comp\u00e9tences";
+            sb.append("        <li class=\"eval-item\" style=\"border-left-color:").append(color).append("\">\n");
+            sb.append("          <span class=\"eval-item__subject\">").append(esc(subject)).append("</span>\n");
+            sb.append("          <time class=\"eval-item__date\" datetime=\"").append(dateAttr).append("\">")
+              .append(esc(dateStr)).append("</time>\n");
+            sb.append("          <span class=\"badge badge--eval\">").append(esc(label)).append("</span>\n");
+            sb.append("        </li>\n");
+        }
+        sb.append("      </ul>\n");
+        sb.append("    </section>\n");
+        return sb.toString();
+    }
 
     private String renderAssignments(List<Assignment> upcoming, Path outputDir) {
         // Group by dueDate (insertion order preserves ascending sort from the stream)
@@ -253,6 +292,8 @@ public class AssignmentHtmlGenerator {
           --border:  #e2e8f0;
 
           --bdg-done-bg:    #dcfce7; --bdg-done-fg:    #15803d;
+          --bdg-eval-bg:    #fef3c7; --bdg-eval-fg:    #92400e;
+          --eval-section-bg:#fffbeb; --eval-section-border: #fcd34d;
           --attach-bg:      #f0f7ff; --attach-fg:      #1e40af;
           --attach-border:  #bfdbfe;
         }
@@ -267,6 +308,8 @@ public class AssignmentHtmlGenerator {
             --border:  #1e2030;
 
             --bdg-done-bg:   #052e16; --bdg-done-fg:   #4ade80;
+            --bdg-eval-bg:   #3d2800; --bdg-eval-fg:   #fcd34d;
+            --eval-section-bg:#1c1500; --eval-section-border: #854d0e;
             --attach-bg:     #0c1f40; --attach-fg:     #93c5fd;
             --attach-border: #1e3a5f;
           }
@@ -400,6 +443,55 @@ public class AssignmentHtmlGenerator {
         }
 
         .badge--done { background: var(--bdg-done-bg); color: var(--bdg-done-fg); }
+        .badge--eval { background: var(--bdg-eval-bg); color: var(--bdg-eval-fg); }
+
+        /* ----- Upcoming competence evaluations section ----- */
+        .eval-section {
+          background: var(--eval-section-bg);
+          border: 1px solid var(--eval-section-border);
+          border-radius: 10px;
+          padding: 1rem 1.125rem 0.875rem;
+          margin-bottom: 1.5rem;
+        }
+
+        .eval-section__title {
+          font-size: 0.8125rem;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--bdg-eval-fg);
+          margin-bottom: 0.625rem;
+        }
+
+        .eval-list {
+          list-style: none;
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+        }
+
+        .eval-item {
+          display: flex;
+          align-items: center;
+          gap: 0.625rem;
+          padding: 0.5rem 0.75rem;
+          background: var(--surface);
+          border-radius: 7px;
+          border-left: 3px solid transparent;
+        }
+
+        .eval-item__subject {
+          font-weight: 600;
+          font-size: 0.875rem;
+          color: var(--text-1);
+          flex: 1;
+        }
+
+        .eval-item__date {
+          font-size: 0.8125rem;
+          color: var(--text-2);
+          white-space: nowrap;
+        }
 
         /* ----- Attachments ----- */
         .assignment__attachments {
@@ -448,6 +540,8 @@ public class AssignmentHtmlGenerator {
             --border:  #cccccc;
 
             --bdg-done-bg:   #e8f5e9; --bdg-done-fg:   #1b5e20;
+            --bdg-eval-bg:   #fef9c3; --bdg-eval-fg:   #78350f;
+            --eval-section-bg:#fffef0; --eval-section-border: #d97706;
             --attach-bg:     #e3f2fd; --attach-fg:     #0d47a1;
             --attach-border: #bbdefb;
           }

@@ -366,7 +366,13 @@ public class TimetableHtmlGenerator {
                 }
             }
         }
-        if (e.isTest()) badges.add(badge("test", "\u00c9valuation"));
+        if (e.isEval()) {
+            String label = e.getLessonLabel() != null ? e.getLessonLabel() : "\u00c9val. de comp\u00e9tences";
+            badges.add(badge("eval", label));
+        } else if (e.isTest()) {
+            String label = e.getLessonLabel() != null ? e.getLessonLabel() : "\u00c9valuation";
+            badges.add(badge("test", label));
+        }
         return badges;
     }
 
@@ -476,6 +482,7 @@ public class TimetableHtmlGenerator {
           --bdg-cancel-bg: #fee2e2; --bdg-cancel-fg: #b91c1c;
           --bdg-modify-bg: #fef9c3; --bdg-modify-fg: #854d0e;
           --bdg-test-bg:   #dbeafe; --bdg-test-fg:   #1e40af;
+          --bdg-eval-bg:   #fef3c7; --bdg-eval-fg:   #92400e;
           --bdg-exempt-bg: #f3e8ff; --bdg-exempt-fg: #6b21a8;
         }
 
@@ -491,6 +498,7 @@ public class TimetableHtmlGenerator {
             --bdg-cancel-bg: #3f0a0a; --bdg-cancel-fg: #fca5a5;
             --bdg-modify-bg: #3d2509; --bdg-modify-fg: #fcd34d;
             --bdg-test-bg:   #0c1f40; --bdg-test-fg:   #93c5fd;
+            --bdg-eval-bg:   #3d2800; --bdg-eval-fg:   #fcd34d;
             --bdg-exempt-bg: #2d0a5e; --bdg-exempt-fg: #d8b4fe;
           }
         }
@@ -629,6 +637,7 @@ public class TimetableHtmlGenerator {
         .badge--cancel { background: var(--bdg-cancel-bg); color: var(--bdg-cancel-fg); }
         .badge--modify { background: var(--bdg-modify-bg); color: var(--bdg-modify-fg); }
         .badge--test   { background: var(--bdg-test-bg);   color: var(--bdg-test-fg); }
+        .badge--eval   { background: var(--bdg-eval-bg);   color: var(--bdg-eval-fg); }
         .badge--exempt { background: var(--bdg-exempt-bg); color: var(--bdg-exempt-fg); }
 
         /* ----- Gap and lunch slots ----- */

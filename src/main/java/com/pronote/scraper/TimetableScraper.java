@@ -257,11 +257,26 @@ public class TimetableScraper {
             e.setStatusLabel(statut);
         }
 
-        // estDevoir is nested inside cahierDeTextes.V, not at the top level.
-        // (pronotepy: self._resolver(bool, "cahierDeTextes", "V", "estDevoir", default=False))
+        // cahierDeTextes.V carries three distinct pieces of information:
+        //   estDevoir  → regular written test linked to a homework entry (→ isTest)
+        //   estEval    → upcoming competence evaluation (→ isEval)
+        //   originesCategorie.V[0].L → the display label shown in the timetable app view
+        //     e.g. "Devoir sur table" (G=3, from estDevoir) or "Évaluation de compétences" (G=7, from estEval)
         JsonNode cahierDeTextes = data.get("cahierDeTextes");
         if (cahierDeTextes != null && cahierDeTextes.has("V")) {
-            e.setTest(getBoolean(cahierDeTextes.get("V"), "estDevoir", false));
+            JsonNode cdt = cahierDeTextes.get("V");
+            e.setTest(getBoolean(cdt, "estDevoir", false));
+            e.setEval(getBoolean(cdt, "estEval", false));
+            JsonNode origines = cdt.get("originesCategorie");
+            if (origines != null) {
+                JsonNode items = origines.has("V") ? origines.get("V") : origines;
+                if (items != null && items.isArray() && !items.isEmpty()) {
+                    String label = getString(items.get(0), "L", null);
+                    if (label != null && !label.isBlank()) {
+                        e.setLessonLabel(label);
+                    }
+                }
+            }
         }
 
         // memo: free-text teacher annotation (e.g. "Évaluation de compétences")

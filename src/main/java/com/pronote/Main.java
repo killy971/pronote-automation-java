@@ -302,7 +302,7 @@ public class Main {
         // ---- 11. Generate static HTML assignment view ---------------------
         if (features.isAssignments() && config.getAssignmentView().isEnabled()) {
             log.info("Generating assignment HTML view...");
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments);
+            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments, timetable);
         }
 
         // ---- 12. Generate static HTML evaluation view --------------------
@@ -385,16 +385,20 @@ public class Main {
                 snapshotStore.loadLatest("assignments", new TypeReference<>() {});
         List<Assignment> assignmentsData = assignmentsSnap.orElse(List.of());
 
+        // Pre-load timetable snapshot — needed for timetable views and to inject upcoming
+        // competence evaluations into the assignment view.
+        Optional<List<TimetableEntry>> timetableSnap =
+                snapshotStore.loadLatest("timetable", new TypeReference<>() {});
+        List<TimetableEntry> timetableData = timetableSnap.orElse(List.of());
+
         if (timetableViewEnabled) {
-            Optional<List<TimetableEntry>> timetable =
-                    snapshotStore.loadLatest("timetable", new TypeReference<>() {});
-            if (timetable.isEmpty()) {
+            if (timetableSnap.isEmpty()) {
                 throw new RuntimeException("No timetable snapshot found at "
                         + dataDir.resolve("snapshots/timetable/latest.json")
                         + " — run 'make run' first to fetch data.");
             }
-            log.info("Regenerating timetable views from snapshot ({} entries)...", timetable.get().size());
-            new TimetableViewRenderer(config.getTimetableView()).render(timetable.get(), assignmentsData);
+            log.info("Regenerating timetable views from snapshot ({} entries)...", timetableData.size());
+            new TimetableViewRenderer(config.getTimetableView()).render(timetableData, assignmentsData);
         }
 
         if (assignmentViewEnabled) {
@@ -404,7 +408,7 @@ public class Main {
                         + " — run 'make run' first to fetch data.");
             }
             log.info("Regenerating assignment view from snapshot ({} entries)...", assignmentsData.size());
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignmentsData);
+            new AssignmentViewRenderer(config.getAssignmentView()).render(assignmentsData, timetableData);
         }
 
         if (evaluationViewEnabled) {
@@ -573,7 +577,7 @@ public class Main {
 
         if (features.isAssignments() && config.getAssignmentView().isEnabled() && !assignments.isEmpty()) {
             log.info("Regenerating assignment HTML view...");
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments);
+            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments, timetable);
         }
 
         if (features.isEvaluations() && config.getEvaluationView().isEnabled() && !evaluations.isEmpty()) {

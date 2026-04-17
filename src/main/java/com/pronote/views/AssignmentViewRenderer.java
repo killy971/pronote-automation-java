@@ -2,6 +2,7 @@ package com.pronote.views;
 
 import com.pronote.config.AppConfig;
 import com.pronote.domain.Assignment;
+import com.pronote.domain.TimetableEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,8 +35,11 @@ public class AssignmentViewRenderer {
      * Generates the assignment HTML view and writes it to the configured output directory.
      *
      * @param assignments the full assignment snapshot (upcoming ones are filtered internally)
+     * @param timetable   full timetable snapshot; used to inject the upcoming competence
+     *                    evaluations section (entries with {@code isEval=true} and a future date).
+     *                    Pass an empty list when timetable data is unavailable.
      */
-    public void render(List<Assignment> assignments) {
+    public void render(List<Assignment> assignments, List<TimetableEntry> timetable) {
         Path outDir = Path.of(viewConfig.getOutputDirectory()).toAbsolutePath().normalize();
         try {
             Files.createDirectories(outDir);
@@ -44,7 +48,7 @@ public class AssignmentViewRenderer {
         }
 
         log.info("Generating assignment view in {}", outDir);
-        String html = generator.generate(assignments, outDir);
+        String html = generator.generate(assignments, timetable, outDir);
         Path file = outDir.resolve("index.html");
         try {
             Files.writeString(file, html, StandardCharsets.UTF_8);

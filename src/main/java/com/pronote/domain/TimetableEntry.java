@@ -30,6 +30,10 @@ public class TimetableEntry implements Identifiable {
      *  "Exceptionnel", "Cours maintenu", "Cours modifié". Null when Pronote provides no label. */
     private String statusLabel;
     private boolean isTest;
+    private boolean isEval;
+    /** Human-readable lesson annotation from {@code cahierDeTextes.V.originesCategorie.V[0].L},
+     *  e.g. "Devoir sur table" (G=3) or "Évaluation de compétences" (G=7). Null when absent. */
+    private String lessonLabel;
     /** Free-text memo attached to the lesson by the teacher.
      *  Comes from the {@code memo} field in the Pronote timetable response. Null when absent. */
     private String memo;
@@ -65,6 +69,12 @@ public class TimetableEntry implements Identifiable {
 
     public boolean isTest() { return isTest; }
     public void setTest(boolean test) { isTest = test; }
+
+    public boolean isEval() { return isEval; }
+    public void setEval(boolean eval) { isEval = eval; }
+
+    public String getLessonLabel() { return lessonLabel; }
+    public void setLessonLabel(String lessonLabel) { this.lessonLabel = lessonLabel; }
 
     public String getMemo() { return memo; }
     public void setMemo(String memo) { this.memo = memo; }
