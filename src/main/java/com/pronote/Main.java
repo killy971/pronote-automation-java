@@ -217,6 +217,7 @@ public class Main {
             assignments = merged;
         }
         if (features.isTimetable() && !manualEntries.getUpcomingEvals().isEmpty()) {
+            resolveManualEvalTimes(manualEntries.getUpcomingEvals(), timetable);
             List<TimetableEntry> merged = new ArrayList<>(timetable);
             merged.addAll(manualEntries.getUpcomingEvals());
             timetable = merged;
@@ -409,7 +410,10 @@ public class Main {
         Optional<List<TimetableEntry>> timetableSnap =
                 snapshotStore.loadLatest("timetable", new TypeReference<>() {});
         List<TimetableEntry> timetableData = new ArrayList<>(timetableSnap.orElse(List.of()));
-        if (features.isTimetable()) timetableData.addAll(manualEntries.getUpcomingEvals());
+        if (features.isTimetable() && !manualEntries.getUpcomingEvals().isEmpty()) {
+            resolveManualEvalTimes(manualEntries.getUpcomingEvals(), timetableData);
+            timetableData.addAll(manualEntries.getUpcomingEvals());
+        }
 
         if (timetableViewEnabled) {
             if (timetableSnap.isEmpty()) {
@@ -1165,6 +1169,48 @@ public class Main {
      * <p>If no timetable entry matches (e.g. the assignment date falls outside the
      * fetched timetable range), the enrichment set by the scraper is kept unchanged.
      */
+    /**
+     * Resolves start/end times for synthetic manual eval entries by finding the matching
+     * timetable slot on the same date and subject. Teacher is used for disambiguation when set.
+     * Falls back to the 08:00–09:00 placeholder when no match is found (e.g. date outside the
+     * timetable window).
+     */
+    private static void resolveManualEvalTimes(List<TimetableEntry> manualEvals,
+                                                List<TimetableEntry> timetable) {
+        for (TimetableEntry eval : manualEvals) {
+            LocalDate date = eval.getStartTime().toLocalDate();
+
+            // Subject + teacher match (most specific)
+            Optional<TimetableEntry> match = timetable.stream()
+                    .filter(e -> e.getStartTime() != null
+                            && date.equals(e.getStartTime().toLocalDate())
+                            && eval.getSubject().equals(e.getSubject())
+                            && (eval.getTeacher() == null || eval.getTeacher().equals(e.getTeacher())))
+                    .findFirst();
+
+            // Subject-only fallback when teacher was set but produced no match
+            if (match.isEmpty() && eval.getTeacher() != null) {
+                match = timetable.stream()
+                        .filter(e -> e.getStartTime() != null
+                                && date.equals(e.getStartTime().toLocalDate())
+                                && eval.getSubject().equals(e.getSubject()))
+                        .findFirst();
+            }
+
+            if (match.isPresent() && match.get().getEndTime() != null) {
+                eval.setStartTime(match.get().getStartTime());
+                eval.setEndTime(match.get().getEndTime());
+                log.debug("Manual eval '{}' on {}: resolved time {}–{} from timetable",
+                        eval.getLessonLabel(), date,
+                        match.get().getStartTime().toLocalTime(),
+                        match.get().getEndTime().toLocalTime());
+            } else {
+                log.info("Manual eval '{}' on {}: no timetable slot found — using default 08:00–09:00",
+                        eval.getLessonLabel(), date);
+            }
+        }
+    }
+
     private static void reEnrichAssignmentsWithTeacher(
             List<Assignment> assignments,
             List<TimetableEntry> timetable,

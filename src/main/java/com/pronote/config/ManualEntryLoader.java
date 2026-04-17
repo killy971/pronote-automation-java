@@ -132,7 +132,8 @@ public class ManualEntryLoader {
         entry.setSubject(e.getSubject());
         entry.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher()));
         entry.setTeacher(e.getTeacher());
-        entry.setStartTime(date.atStartOfDay());
+        entry.setStartTime(date.atTime(8, 0));
+        entry.setEndTime(date.atTime(9, 0));
         entry.setEval(true);
         entry.setLessonLabel(e.getName());
         entry.setMemo(e.getDescription());
