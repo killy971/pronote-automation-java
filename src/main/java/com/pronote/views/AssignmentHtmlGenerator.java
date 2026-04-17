@@ -2,6 +2,7 @@ package com.pronote.views;
 
 import com.pronote.domain.Assignment;
 import com.pronote.domain.AttachmentRef;
+import com.pronote.domain.CompetenceEvaluation;
 import com.pronote.domain.TimetableEntry;
 
 import java.nio.file.Path;
@@ -56,15 +57,18 @@ public class AssignmentHtmlGenerator {
     /**
      * Generates the full HTML document.
      *
-     * @param assignments all assignments (upcoming ones are filtered internally: dueDate >= today)
-     * @param timetable   full timetable snapshot; competence evaluations (isEval=true, future date)
-     *                    are shown in a dedicated section above assignments. Pass empty list if
-     *                    timetable data is unavailable.
-     * @param outputDir   absolute, normalised output directory used to compute relative paths for
-     *                    local attachment links
+     * @param assignments  all assignments (upcoming ones are filtered internally: dueDate >= today)
+     * @param timetable    full timetable snapshot; entries with {@code isEval=true} and a future
+     *                     date are shown as upcoming evaluations. Pass empty list if unavailable.
+     * @param manualEvals  competence evaluations from manual-entries.yaml (and from the snapshot);
+     *                     future-dated ones are merged with timetable evals in the banner and cards.
+     *                     Pass empty list if unavailable.
+     * @param outputDir    absolute, normalised output directory used to compute relative paths for
+     *                     local attachment links
      * @return a complete, self-contained HTML5 document
      */
-    public String generate(List<Assignment> assignments, List<TimetableEntry> timetable, Path outputDir) {
+    public String generate(List<Assignment> assignments, List<TimetableEntry> timetable,
+                           List<CompetenceEvaluation> manualEvals, Path outputDir) {
         LocalDate today = LocalDate.now();
 
         List<Assignment> upcoming = assignments.stream()
@@ -74,17 +78,33 @@ public class AssignmentHtmlGenerator {
                 .thenComparing(a -> displaySubject(a)))
             .toList();
 
-        List<TimetableEntry> upcomingEvals = timetable.stream()
-            .filter(e -> e.isEval()
-                      && e.getStartTime() != null
-                      && !e.getStartTime().toLocalDate().isBefore(today))
-            .sorted(Comparator.comparing(TimetableEntry::getStartTime))
-            .toList();
+        // Unify eval sources: timetable isEval entries + CompetenceEvaluation objects
+        List<EvalEntry> upcomingEvals = new ArrayList<>();
+        for (TimetableEntry e : timetable) {
+            if (e.isEval() && e.getStartTime() != null
+                    && !e.getStartTime().toLocalDate().isBefore(today)) {
+                String subject = e.getEnrichedSubject() != null && !e.getEnrichedSubject().isBlank()
+                        ? e.getEnrichedSubject() : e.getSubject();
+                String label = e.getLessonLabel() != null && !e.getLessonLabel().isBlank()
+                        ? e.getLessonLabel() : "\u00c9val. de comp\u00e9tences";
+                upcomingEvals.add(new EvalEntry(e.getStartTime().toLocalDate(), subject, label));
+            }
+        }
+        for (CompetenceEvaluation e : manualEvals) {
+            if (e.getDate() != null && !e.getDate().isBefore(today)) {
+                String subject = e.getEnrichedSubject() != null && !e.getEnrichedSubject().isBlank()
+                        ? e.getEnrichedSubject() : e.getSubject();
+                String label = e.getName() != null && !e.getName().isBlank()
+                        ? e.getName() : "\u00c9val. de comp\u00e9tences";
+                upcomingEvals.add(new EvalEntry(e.getDate(), subject, label));
+            }
+        }
+        upcomingEvals.sort(Comparator.comparing(e -> e.date));
 
         // Group evals by date for injection into the main assignment date groups
-        Map<LocalDate, List<TimetableEntry>> evalsByDate = new LinkedHashMap<>();
-        for (TimetableEntry e : upcomingEvals) {
-            evalsByDate.computeIfAbsent(e.getStartTime().toLocalDate(), k -> new ArrayList<>()).add(e);
+        Map<LocalDate, List<EvalEntry>> evalsByDate = new LinkedHashMap<>();
+        for (EvalEntry e : upcomingEvals) {
+            evalsByDate.computeIfAbsent(e.date, k -> new ArrayList<>()).add(e);
         }
 
         String evalBanner = upcomingEvals.isEmpty() ? "" : renderEvalBanner(upcomingEvals);
@@ -124,17 +144,14 @@ public class AssignmentHtmlGenerator {
     // -------------------------------------------------------------------------
 
     /** Compact amber banner listing upcoming evals — one line per entry. */
-    private String renderEvalBanner(List<TimetableEntry> evals) {
+    private String renderEvalBanner(List<EvalEntry> evals) {
         StringBuilder sb = new StringBuilder();
         sb.append("    <div class=\"eval-banner\">\n");
         sb.append("      <span class=\"eval-banner__title\">\u00c9val. de comp\u00e9tences \u00e0 venir\u00a0:</span>\n");
         sb.append("      <ul class=\"eval-banner__list\">\n");
-        for (TimetableEntry e : evals) {
-            LocalDate date = e.getStartTime().toLocalDate();
-            String subject = e.getEnrichedSubject() != null && !e.getEnrichedSubject().isBlank()
-                ? e.getEnrichedSubject() : e.getSubject();
-            String shortDate = capitalize(date.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.FRENCH)));
-            sb.append("        <li>").append(esc(subject))
+        for (EvalEntry e : evals) {
+            String shortDate = capitalize(e.date.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.FRENCH)));
+            sb.append("        <li>").append(esc(e.subject))
               .append(" <span class=\"eval-banner__date\">\u2014\u00a0").append(esc(shortDate)).append("</span></li>\n");
         }
         sb.append("      </ul>\n");
@@ -143,7 +160,7 @@ public class AssignmentHtmlGenerator {
     }
 
     private String renderAssignments(List<Assignment> upcoming,
-                                      Map<LocalDate, List<TimetableEntry>> evalsByDate,
+                                      Map<LocalDate, List<EvalEntry>> evalsByDate,
                                       Path outputDir) {
         Map<LocalDate, List<Assignment>> byDate = new LinkedHashMap<>();
         for (Assignment a : upcoming) {
@@ -158,14 +175,14 @@ public class AssignmentHtmlGenerator {
         StringBuilder sb = new StringBuilder();
         for (LocalDate date : merged.keySet()) {
             List<Assignment> dayAssignments = byDate.getOrDefault(date, List.of());
-            List<TimetableEntry> dayEvals = evalsByDate.getOrDefault(date, List.of());
+            List<EvalEntry> dayEvals = evalsByDate.getOrDefault(date, List.of());
             sb.append(renderDateGroup(date, dayAssignments, dayEvals, outputDir));
         }
         return sb.toString();
     }
 
     private String renderDateGroup(LocalDate date, List<Assignment> dayAssignments,
-                                    List<TimetableEntry> dayEvals, Path outputDir) {
+                                    List<EvalEntry> dayEvals, Path outputDir) {
         StringBuilder sb = new StringBuilder();
         sb.append("      <section class=\"date-group\" id=\"date-").append(date.format(DATE_ATTR_FMT)).append("\">\n");
         sb.append("        <h2 class=\"date-group__heading\">")
@@ -179,23 +196,23 @@ public class AssignmentHtmlGenerator {
             bySubject.computeIfAbsent(displaySubject(a), k -> new ArrayList<>()).add(a);
         }
 
-        // Evals indexed by display subject so they can be merged into matching assignment groups
-        Map<String, List<TimetableEntry>> evalsBySubject = new LinkedHashMap<>();
-        for (TimetableEntry e : dayEvals) {
-            evalsBySubject.computeIfAbsent(evalDisplaySubject(e), k -> new ArrayList<>()).add(e);
+        // Evals indexed by subject so they can be merged into matching assignment groups
+        Map<String, List<EvalEntry>> evalsBySubject = new LinkedHashMap<>();
+        for (EvalEntry e : dayEvals) {
+            evalsBySubject.computeIfAbsent(e.subject, k -> new ArrayList<>()).add(e);
         }
 
         // Render assignment groups, injecting evals whose subject matches
         Set<String> mergedEvalSubjects = new LinkedHashSet<>();
         for (Map.Entry<String, List<Assignment>> subjectEntry : bySubject.entrySet()) {
             String subject = subjectEntry.getKey();
-            List<TimetableEntry> matchingEvals = evalsBySubject.getOrDefault(subject, List.of());
+            List<EvalEntry> matchingEvals = evalsBySubject.getOrDefault(subject, List.of());
             sb.append(renderSubjectGroup(subject, subjectEntry.getValue(), matchingEvals, outputDir));
             if (!matchingEvals.isEmpty()) mergedEvalSubjects.add(subject);
         }
 
         // Evals whose subject had no assignments that day get their own standalone group
-        for (Map.Entry<String, List<TimetableEntry>> evalEntry : evalsBySubject.entrySet()) {
+        for (Map.Entry<String, List<EvalEntry>> evalEntry : evalsBySubject.entrySet()) {
             if (!mergedEvalSubjects.contains(evalEntry.getKey())) {
                 sb.append(renderSubjectGroup(evalEntry.getKey(), List.of(), evalEntry.getValue(), outputDir));
             }
@@ -206,7 +223,7 @@ public class AssignmentHtmlGenerator {
     }
 
     private String renderSubjectGroup(String subject, List<Assignment> assignments,
-                                       List<TimetableEntry> evals, Path outputDir) {
+                                       List<EvalEntry> evals, Path outputDir) {
         String color = ACCENT_COLORS[Math.abs(subject.hashCode()) % ACCENT_COLORS.length];
         StringBuilder sb = new StringBuilder();
 
@@ -216,15 +233,14 @@ public class AssignmentHtmlGenerator {
         sb.append("            <span class=\"subject-group__name\">").append(esc(subject)).append("</span>\n");
         sb.append("          </div>\n");
 
-        for (Assignment a : assignments) {
-            sb.append(renderAssignmentCard(a, outputDir));
+        for (EvalEntry e : evals) {
+            sb.append("          <div class=\"assignment-card assignment-card--eval\">\n");
+            sb.append("            <p class=\"assignment__description\">").append(esc(e.label)).append("</p>\n");
+            sb.append("          </div>\n");
         }
 
-        for (TimetableEntry e : evals) {
-            String label = e.getLessonLabel() != null ? e.getLessonLabel() : "\u00c9val. de comp\u00e9tences";
-            sb.append("          <div class=\"assignment-card assignment-card--eval\">\n");
-            sb.append("            <p class=\"assignment__description\">").append(esc(label)).append("</p>\n");
-            sb.append("          </div>\n");
+        for (Assignment a : assignments) {
+            sb.append(renderAssignmentCard(a, outputDir));
         }
 
         sb.append("        </div>\n");
@@ -314,11 +330,6 @@ public class AssignmentHtmlGenerator {
         return (e != null && !e.isBlank()) ? e : a.getSubject();
     }
 
-    private static String evalDisplaySubject(TimetableEntry e) {
-        String enriched = e.getEnrichedSubject();
-        return (enriched != null && !enriched.isBlank()) ? enriched : e.getSubject();
-    }
-
     private static String capitalize(String s) {
         if (s == null || s.isEmpty()) return s;
         return Character.toUpperCase(s.charAt(0)) + s.substring(1);
@@ -330,6 +341,21 @@ public class AssignmentHtmlGenerator {
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;");
+    }
+
+    // -------------------------------------------------------------------------
+    // Unified eval display type — merges timetable isEval entries and CompetenceEvaluations
+    // -------------------------------------------------------------------------
+
+    private static class EvalEntry {
+        final LocalDate date;
+        final String subject;
+        final String label;
+        EvalEntry(LocalDate date, String subject, String label) {
+            this.date = date;
+            this.subject = subject;
+            this.label = label;
+        }
     }
 
     // -------------------------------------------------------------------------

@@ -317,7 +317,7 @@ public class Main {
         // ---- 11. Generate static HTML assignment view ---------------------
         if (features.isAssignments() && config.getAssignmentView().isEnabled()) {
             log.info("Generating assignment HTML view...");
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments, timetable);
+            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments, timetable, evaluations);
         }
 
         // ---- 12. Generate static HTML evaluation view --------------------
@@ -420,6 +420,14 @@ public class Main {
             new TimetableViewRenderer(config.getTimetableView()).render(timetableData, assignmentsData);
         }
 
+        // Load evaluations eagerly — needed for both the assignment view (upcoming eval banner)
+        // and the evaluation view. Re-apply enrichment so pre-rule snapshots render correctly.
+        Optional<List<CompetenceEvaluation>> evaluationsSnap =
+                snapshotStore.loadLatest("evaluations", new TypeReference<>() {});
+        List<CompetenceEvaluation> evaluationsData = new ArrayList<>(evaluationsSnap.orElse(List.of()));
+        evaluationsData.forEach(e -> e.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher())));
+        if (features.isEvaluations()) evaluationsData.addAll(manualEntries.getEvaluations());
+
         if (assignmentViewEnabled) {
             if (assignmentsSnap.isEmpty()) {
                 throw new RuntimeException("No assignments snapshot found at "
@@ -427,23 +435,13 @@ public class Main {
                         + " — run 'make run' first to fetch data.");
             }
             log.info("Regenerating assignment view from snapshot ({} entries)...", assignmentsData.size());
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignmentsData, timetableData);
+            new AssignmentViewRenderer(config.getAssignmentView()).render(assignmentsData, timetableData, evaluationsData);
         }
 
         if (evaluationViewEnabled) {
-            Optional<List<CompetenceEvaluation>> evaluationsSnap =
-                    snapshotStore.loadLatest("evaluations", new TypeReference<>() {});
             if (evaluationsSnap.isEmpty() && manualEntries.getEvaluations().isEmpty()) {
                 log.warn("No evaluations snapshot found — skipping evaluation view regeneration.");
             } else {
-                // Re-apply subject enrichment from current config rules so that snapshots
-                // saved before a rule was added (or before teacherPrefixes was configured)
-                // still render with correct enrichedSubject values in --mode views.
-                List<CompetenceEvaluation> evaluationsData =
-                        new ArrayList<>(evaluationsSnap.orElse(List.of()));
-                evaluationsData.forEach(e ->
-                        e.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher())));
-                if (features.isEvaluations()) evaluationsData.addAll(manualEntries.getEvaluations());
                 log.info("Regenerating evaluation views from snapshot ({} entries)...", evaluationsData.size());
                 EvaluationViewRenderer evalRenderer = new EvaluationViewRenderer(config.getEvaluationView());
                 evalRenderer.render(evaluationsData);
@@ -598,7 +596,7 @@ public class Main {
 
         if (features.isAssignments() && config.getAssignmentView().isEnabled() && !assignments.isEmpty()) {
             log.info("Regenerating assignment HTML view...");
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments, timetable);
+            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments, timetable, evaluations);
         }
 
         if (features.isEvaluations() && config.getEvaluationView().isEnabled() && !evaluations.isEmpty()) {
