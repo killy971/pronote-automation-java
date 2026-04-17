@@ -725,6 +725,11 @@ public class TimetableHtmlGenerator {
           line-height: 1.5;
         }
 
+        .day-card__eval-note {
+          font-weight: 600;
+          color: var(--bdg-eval-fg);
+        }
+
         .day-card__alert {
           display: inline-flex;
           align-items: center;

@@ -167,6 +167,13 @@ public class TimetableViewRenderer {
                 + "\u00a0devoir" + (assignCount > 1 ? "s" : "");
         }
 
+        long evalCount = entries.stream().filter(TimetableEntry::isEval).count();
+        if (evalCount > 0) {
+            metaLine += "\u00a0\u00b7\u00a0<span class=\"day-card__eval-note\">"
+                + evalCount + "\u00a0\u00e9val" + (evalCount > 1 ? "s" : "") + "."
+                + "</span>";
+        }
+
         String emptyClass = entries.isEmpty() ? " day-card--empty" : "";
 
         return "      <a class=\"day-card" + emptyClass + "\" href=\"" + href + "\">\n"
