@@ -100,7 +100,8 @@ public class TimetableViewRenderer {
         for (LocalDate date : dates) {
             List<TimetableEntry> dayEntries = entriesForDate(allEntries, date);
             long assignCount = allAssignments.stream()
-                .filter(a -> date.equals(a.getDueDate()) && !a.isDone())
+                .filter(a -> date.equals(a.getDueDate()) && !a.isDone()
+                          && !AssignmentHtmlGenerator.isBlankAssignment(a))
                 .count();
             cards.append(renderDayCard(date, dayEntries, assignCount));
         }
@@ -232,7 +233,7 @@ public class TimetableViewRenderer {
             List<Assignment> allAssignments, LocalDate date) {
         Map<String, List<Assignment>> result = new HashMap<>();
         for (Assignment a : allAssignments) {
-            if (date.equals(a.getDueDate())) {
+            if (date.equals(a.getDueDate()) && !AssignmentHtmlGenerator.isBlankAssignment(a)) {
                 String subject = displaySubject(a);
                 if (subject != null && !subject.isBlank()) {
                     result.computeIfAbsent(subject, k -> new ArrayList<>()).add(a);

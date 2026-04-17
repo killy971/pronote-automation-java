@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Generates a single self-contained HTML5 page listing all upcoming assignments.
@@ -66,6 +67,7 @@ public class AssignmentHtmlGenerator {
 
         List<Assignment> upcoming = assignments.stream()
             .filter(a -> a.getDueDate() != null && !a.getDueDate().isBefore(today))
+            .filter(a -> !isBlankAssignment(a))
             .sorted(Comparator.comparing(Assignment::getDueDate)
                 .thenComparing(a -> displaySubject(a)))
             .toList();
@@ -77,11 +79,17 @@ public class AssignmentHtmlGenerator {
             .sorted(Comparator.comparing(TimetableEntry::getStartTime))
             .toList();
 
-        String evalSection = upcomingEvals.isEmpty() ? "" : renderUpcomingEvals(upcomingEvals);
+        // Group evals by date for injection into the main assignment date groups
+        Map<LocalDate, List<TimetableEntry>> evalsByDate = new LinkedHashMap<>();
+        for (TimetableEntry e : upcomingEvals) {
+            evalsByDate.computeIfAbsent(e.getStartTime().toLocalDate(), k -> new ArrayList<>()).add(e);
+        }
 
-        String content = upcoming.isEmpty()
+        String evalBanner = upcomingEvals.isEmpty() ? "" : renderEvalBanner(upcomingEvals);
+
+        String content = upcoming.isEmpty() && evalsByDate.isEmpty()
             ? "      <p class=\"empty-state\">Aucun devoir \u00e0 venir.</p>\n"
-            : renderAssignments(upcoming, outputDir);
+            : renderAssignments(upcoming, evalsByDate, outputDir);
 
         String generatedAt = capitalize(LocalDateTime.now().format(DATETIME_FMT));
 
@@ -100,7 +108,7 @@ public class AssignmentHtmlGenerator {
             + "      <h1 class=\"page-header__title\">Devoirs \u00e0 venir</h1>\n"
             + "      <p class=\"page-header__subtitle\">Mis \u00e0 jour le " + generatedAt + "</p>\n"
             + "    </header>\n"
-            + evalSection
+            + evalBanner
             + "    <main class=\"assignments\">\n"
             + content
             + "    </main>\n"
@@ -113,77 +121,79 @@ public class AssignmentHtmlGenerator {
     // Rendering
     // -------------------------------------------------------------------------
 
-    private String renderUpcomingEvals(List<TimetableEntry> evals) {
-        // Group by date (list is already sorted ascending)
-        Map<LocalDate, List<TimetableEntry>> byDate = new LinkedHashMap<>();
-        for (TimetableEntry e : evals) {
-            byDate.computeIfAbsent(e.getStartTime().toLocalDate(), k -> new ArrayList<>()).add(e);
-        }
-
+    /** Compact amber banner listing upcoming evals — one line per entry. */
+    private String renderEvalBanner(List<TimetableEntry> evals) {
         StringBuilder sb = new StringBuilder();
-        sb.append("    <section class=\"eval-section\">\n");
-        sb.append("      <h2 class=\"eval-section__title\">\u00c9valuations de comp\u00e9tences \u00e0 venir</h2>\n");
-
-        for (Map.Entry<LocalDate, List<TimetableEntry>> dateEntry : byDate.entrySet()) {
-            LocalDate date = dateEntry.getKey();
-            sb.append("      <section class=\"date-group\" id=\"eval-").append(date.format(DATE_ATTR_FMT)).append("\">\n");
-            sb.append("        <h2 class=\"date-group__heading\"><time datetime=\"")
-              .append(date.format(DATE_ATTR_FMT)).append("\">")
-              .append(esc(capitalize(date.format(DATE_HEADER_FMT)))).append("</time></h2>\n");
-
-            for (TimetableEntry e : dateEntry.getValue()) {
-                String subject = e.getEnrichedSubject() != null && !e.getEnrichedSubject().isBlank()
-                    ? e.getEnrichedSubject() : e.getSubject();
-                String color = ACCENT_COLORS[Math.abs(e.getSubject().hashCode()) % ACCENT_COLORS.length];
-                String label = e.getLessonLabel() != null ? e.getLessonLabel() : "\u00c9val. de comp\u00e9tences";
-
-                sb.append("        <div class=\"subject-group\">\n");
-                sb.append("          <div class=\"subject-group__header\" style=\"border-left-color:").append(color).append("\">\n");
-                sb.append("            <span class=\"subject-group__name\">").append(esc(subject)).append("</span>\n");
-                sb.append("          </div>\n");
-                sb.append("          <div class=\"assignment-card\">\n");
-                sb.append("            <p class=\"assignment__description\">").append(esc(label)).append("</p>\n");
-                sb.append("          </div>\n");
-                sb.append("        </div>\n");
-            }
-
-            sb.append("      </section>\n");
+        sb.append("    <div class=\"eval-banner\">\n");
+        sb.append("      <span class=\"eval-banner__title\">\u00c9val. de comp\u00e9tences \u00e0 venir\u00a0:</span>\n");
+        sb.append("      <ul class=\"eval-banner__list\">\n");
+        for (TimetableEntry e : evals) {
+            LocalDate date = e.getStartTime().toLocalDate();
+            String subject = e.getEnrichedSubject() != null && !e.getEnrichedSubject().isBlank()
+                ? e.getEnrichedSubject() : e.getSubject();
+            String shortDate = capitalize(date.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.FRENCH)));
+            sb.append("        <li>").append(esc(subject))
+              .append(" <span class=\"eval-banner__date\">\u2014\u00a0").append(esc(shortDate)).append("</span></li>\n");
         }
-
-        sb.append("    </section>\n");
+        sb.append("      </ul>\n");
+        sb.append("    </div>\n");
         return sb.toString();
     }
 
-    private String renderAssignments(List<Assignment> upcoming, Path outputDir) {
-        // Group by dueDate (insertion order preserves ascending sort from the stream)
+    private String renderAssignments(List<Assignment> upcoming,
+                                      Map<LocalDate, List<TimetableEntry>> evalsByDate,
+                                      Path outputDir) {
         Map<LocalDate, List<Assignment>> byDate = new LinkedHashMap<>();
         for (Assignment a : upcoming) {
             byDate.computeIfAbsent(a.getDueDate(), k -> new ArrayList<>()).add(a);
         }
 
+        // Merge dates from both assignments and evals, sorted ascending
+        Map<LocalDate, List<Assignment>> merged = new TreeMap<>();
+        byDate.forEach(merged::put);
+        evalsByDate.keySet().forEach(d -> merged.computeIfAbsent(d, k -> new ArrayList<>()));
+
         StringBuilder sb = new StringBuilder();
-        for (Map.Entry<LocalDate, List<Assignment>> dateEntry : byDate.entrySet()) {
-            sb.append(renderDateGroup(dateEntry.getKey(), dateEntry.getValue(), outputDir));
+        for (LocalDate date : merged.keySet()) {
+            List<Assignment> dayAssignments = byDate.getOrDefault(date, List.of());
+            List<TimetableEntry> dayEvals = evalsByDate.getOrDefault(date, List.of());
+            sb.append(renderDateGroup(date, dayAssignments, dayEvals, outputDir));
         }
         return sb.toString();
     }
 
-    private String renderDateGroup(LocalDate date, List<Assignment> dayAssignments, Path outputDir) {
+    private String renderDateGroup(LocalDate date, List<Assignment> dayAssignments,
+                                    List<TimetableEntry> dayEvals, Path outputDir) {
         StringBuilder sb = new StringBuilder();
         sb.append("      <section class=\"date-group\" id=\"date-").append(date.format(DATE_ATTR_FMT)).append("\">\n");
-        sb.append("        <h2 class=\"date-group__heading\">"
-            + "<time datetime=\"").append(date.format(DATE_ATTR_FMT)).append("\">")
-            .append(esc(capitalize(date.format(DATE_HEADER_FMT))))
-            .append("</time></h2>\n");
+        sb.append("        <h2 class=\"date-group__heading\">")
+          .append("<time datetime=\"").append(date.format(DATE_ATTR_FMT)).append("\">")
+          .append(esc(capitalize(date.format(DATE_HEADER_FMT))))
+          .append("</time></h2>\n");
 
-        // Group by subject within this date (insertion order = sort order from upstream)
+        // Regular assignments grouped by subject
         Map<String, List<Assignment>> bySubject = new LinkedHashMap<>();
         for (Assignment a : dayAssignments) {
             bySubject.computeIfAbsent(displaySubject(a), k -> new ArrayList<>()).add(a);
         }
-
         for (Map.Entry<String, List<Assignment>> subjectEntry : bySubject.entrySet()) {
             sb.append(renderSubjectGroup(subjectEntry.getKey(), subjectEntry.getValue(), outputDir));
+        }
+
+        // Synthetic eval cards appended after regular assignments
+        for (TimetableEntry e : dayEvals) {
+            String subject = e.getEnrichedSubject() != null && !e.getEnrichedSubject().isBlank()
+                ? e.getEnrichedSubject() : e.getSubject();
+            String color = ACCENT_COLORS[Math.abs(e.getSubject().hashCode()) % ACCENT_COLORS.length];
+            String label = e.getLessonLabel() != null ? e.getLessonLabel() : "\u00c9val. de comp\u00e9tences";
+            sb.append("        <div class=\"subject-group\">\n");
+            sb.append("          <div class=\"subject-group__header\" style=\"border-left-color:").append(color).append("\">\n");
+            sb.append("            <span class=\"subject-group__name\">").append(esc(subject)).append("</span>\n");
+            sb.append("          </div>\n");
+            sb.append("          <div class=\"assignment-card assignment-card--eval\">\n");
+            sb.append("            <p class=\"assignment__description\">").append(esc(label)).append("</p>\n");
+            sb.append("          </div>\n");
+            sb.append("        </div>\n");
         }
 
         sb.append("      </section>\n");
@@ -268,6 +278,24 @@ public class AssignmentHtmlGenerator {
     // Utilities
     // -------------------------------------------------------------------------
 
+    /**
+     * Returns true when an assignment carries no meaningful content and should be hidden.
+     * Matches entries where teachers cleared the description without deleting the entry:
+     * null/blank description, or a description consisting entirely of non-alphanumeric
+     * characters (e.g. ".", "-", "...", "---"), AND no downloadable or linked attachments.
+     */
+    static boolean isBlankAssignment(Assignment a) {
+        String desc = a.getDescription();
+        boolean trivialDesc = desc == null || desc.isBlank()
+            || desc.strip().chars().allMatch(c -> !Character.isLetterOrDigit(c));
+        if (!trivialDesc) return false;
+        List<AttachmentRef> refs = a.getAttachments();
+        boolean hasContent = refs != null && refs.stream()
+            .anyMatch(r -> (r.isUploadedFile() && r.getLocalPath() != null)
+                        || (!r.isUploadedFile() && r.getUrl() != null));
+        return !hasContent;
+    }
+
     private static String displaySubject(Assignment a) {
         String e = a.getEnrichedSubject();
         return (e != null && !e.isBlank()) ? e : a.getSubject();
@@ -307,11 +335,12 @@ public class AssignmentHtmlGenerator {
           --text-3:  #94a3b8;
           --border:  #e2e8f0;
 
-          --bdg-done-bg:    #dcfce7; --bdg-done-fg:    #15803d;
-          --bdg-eval-bg:    #fef3c7; --bdg-eval-fg:    #92400e;
-          --eval-section-bg:#fffbeb; --eval-section-border: #fcd34d;
-          --attach-bg:      #f0f7ff; --attach-fg:      #1e40af;
-          --attach-border:  #bfdbfe;
+          --bdg-done-bg:     #dcfce7; --bdg-done-fg:    #15803d;
+          --bdg-eval-bg:     #fef3c7; --bdg-eval-fg:    #92400e;
+          --eval-banner-bg:  #fffbeb; --eval-banner-border: #fcd34d;
+          --eval-card-bg:    #fffdf5;
+          --attach-bg:       #f0f7ff; --attach-fg:      #1e40af;
+          --attach-border:   #bfdbfe;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -323,11 +352,12 @@ public class AssignmentHtmlGenerator {
             --text-3:  #4a5068;
             --border:  #1e2030;
 
-            --bdg-done-bg:   #052e16; --bdg-done-fg:   #4ade80;
-            --bdg-eval-bg:   #3d2800; --bdg-eval-fg:   #fcd34d;
-            --eval-section-bg:#1c1500; --eval-section-border: #854d0e;
-            --attach-bg:     #0c1f40; --attach-fg:     #93c5fd;
-            --attach-border: #1e3a5f;
+            --bdg-done-bg:    #052e16; --bdg-done-fg:   #4ade80;
+            --bdg-eval-bg:    #3d2800; --bdg-eval-fg:   #fcd34d;
+            --eval-banner-bg: #1c1500; --eval-banner-border: #854d0e;
+            --eval-card-bg:   #1a1200;
+            --attach-bg:      #0c1f40; --attach-fg:     #93c5fd;
+            --attach-border:  #1e3a5f;
           }
         }
 
@@ -461,22 +491,54 @@ public class AssignmentHtmlGenerator {
         .badge--done { background: var(--bdg-done-bg); color: var(--bdg-done-fg); }
         .badge--eval { background: var(--bdg-eval-bg); color: var(--bdg-eval-fg); }
 
-        /* ----- Upcoming competence evaluations section ----- */
-        .eval-section {
-          background: var(--eval-section-bg);
-          border: 1px solid var(--eval-section-border);
-          border-radius: 10px;
-          padding: 1rem 1.125rem 0.875rem;
-          margin-bottom: 1.5rem;
+        /* ----- Eval banner (compact summary above assignments) ----- */
+        .eval-banner {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: baseline;
+          gap: 0.25rem 0.5rem;
+          background: var(--eval-banner-bg);
+          border: 1px solid var(--eval-banner-border);
+          border-radius: 8px;
+          padding: 0.625rem 0.875rem;
+          margin-bottom: 1.25rem;
+          font-size: 0.8125rem;
         }
 
-        .eval-section__title {
-          font-size: 0.8125rem;
+        .eval-banner__title {
           font-weight: 700;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
           color: var(--bdg-eval-fg);
-          margin-bottom: 0.625rem;
+          white-space: nowrap;
+        }
+
+        .eval-banner__list {
+          list-style: none;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0 0.75rem;
+          margin: 0;
+          padding: 0;
+        }
+
+        .eval-banner__list li {
+          color: var(--text-1);
+          font-weight: 500;
+        }
+
+        .eval-banner__date {
+          color: var(--text-2);
+          font-weight: 400;
+        }
+
+        /* ----- Synthetic eval card inside date groups ----- */
+        .assignment-card--eval {
+          background: var(--eval-card-bg);
+          border-left: 3px solid var(--eval-banner-border);
+        }
+
+        .assignment-card--eval .assignment__description {
+          color: var(--bdg-eval-fg);
+          font-style: italic;
         }
 
         /* ----- Attachments ----- */
@@ -525,11 +587,12 @@ public class AssignmentHtmlGenerator {
             --text-3:  #888888;
             --border:  #cccccc;
 
-            --bdg-done-bg:   #e8f5e9; --bdg-done-fg:   #1b5e20;
-            --bdg-eval-bg:   #fef9c3; --bdg-eval-fg:   #78350f;
-            --eval-section-bg:#fffef0; --eval-section-border: #d97706;
-            --attach-bg:     #e3f2fd; --attach-fg:     #0d47a1;
-            --attach-border: #bbdefb;
+            --bdg-done-bg:    #e8f5e9; --bdg-done-fg:   #1b5e20;
+            --bdg-eval-bg:    #fef9c3; --bdg-eval-fg:   #78350f;
+            --eval-banner-bg: #fffef0; --eval-banner-border: #d97706;
+            --eval-card-bg:   #fffef5;
+            --attach-bg:      #e3f2fd; --attach-fg:     #0d47a1;
+            --attach-border:  #bbdefb;
           }
 
           body { padding: 0; background: white; }
