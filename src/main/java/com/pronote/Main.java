@@ -403,16 +403,25 @@ public class Main {
         Optional<List<Assignment>> assignmentsSnap =
                 snapshotStore.loadLatest("assignments", new TypeReference<>() {});
         List<Assignment> assignmentsData = new ArrayList<>(assignmentsSnap.orElse(List.of()));
-        if (features.isAssignments()) assignmentsData.addAll(manualEntries.getAssignments());
+        if (features.isAssignments()) {
+            // Strip manual entries already baked into the snapshot (saved by runFetch),
+            // then re-inject fresh from YAML so edits take effect without a full fetch.
+            assignmentsData.removeIf(a -> a.getId() != null && a.getId().startsWith("manual:"));
+            assignmentsData.addAll(manualEntries.getAssignments());
+        }
 
         // Pre-load timetable snapshot — needed for timetable views and to inject upcoming
         // competence evaluations into the assignment view.
         Optional<List<TimetableEntry>> timetableSnap =
                 snapshotStore.loadLatest("timetable", new TypeReference<>() {});
         List<TimetableEntry> timetableData = new ArrayList<>(timetableSnap.orElse(List.of()));
-        if (features.isTimetable() && !manualEntries.getUpcomingEvals().isEmpty()) {
-            resolveManualEvalTimes(manualEntries.getUpcomingEvals(), timetableData);
-            timetableData.addAll(manualEntries.getUpcomingEvals());
+        if (features.isTimetable()) {
+            // Same de-duplication: strip snapshot-persisted manual evals, re-inject from YAML.
+            timetableData.removeIf(e -> e.getId() != null && e.getId().startsWith("manual:"));
+            if (!manualEntries.getUpcomingEvals().isEmpty()) {
+                resolveManualEvalTimes(manualEntries.getUpcomingEvals(), timetableData);
+                timetableData.addAll(manualEntries.getUpcomingEvals());
+            }
         }
 
         if (timetableViewEnabled) {
