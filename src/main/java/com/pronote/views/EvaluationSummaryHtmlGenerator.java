@@ -11,6 +11,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.OptionalDouble;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -155,6 +156,8 @@ public class EvaluationSummaryHtmlGenerator {
             .reduce((a, b) -> a + ", " + b)
             .orElse(null);
 
+        OptionalDouble avgOpt = computeSubjectAverage(forSubject);
+
         StringBuilder sb = new StringBuilder();
         sb.append("        <div class=\"subject-group\">\n");
 
@@ -165,6 +168,11 @@ public class EvaluationSummaryHtmlGenerator {
         if (teachers != null) {
             sb.append("            <span class=\"subject-group__teacher\">")
                 .append(EvaluationHtmlGenerator.esc(teachers)).append("</span>\n");
+        }
+        if (avgOpt.isPresent()) {
+            double avg = avgOpt.getAsDouble();
+            sb.append("            <span class=\"subject-avg__score\">").append(formatAvg(avg)).append("</span>\n");
+            sb.append("            ").append(renderAvgBadge(avg)).append("\n");
         }
         sb.append("          </div>\n");
 
@@ -219,6 +227,62 @@ public class EvaluationSummaryHtmlGenerator {
 
         row.append("            </div>\n"); // end eval-compact
         return row.toString();
+    }
+
+    // -------------------------------------------------------------------------
+    // Subject average computation
+    // -------------------------------------------------------------------------
+
+    private OptionalDouble computeSubjectAverage(List<CompetenceEvaluation> evals) {
+        double sum = 0;
+        int count = 0;
+        for (CompetenceEvaluation eval : evals) {
+            if (eval.getAcquisitions() == null) continue;
+            for (CompetenceAcquisition acq : eval.getAcquisitions()) {
+                int pts = acquisitionPoints(acq.getAbbreviation());
+                if (pts >= 0) {
+                    sum += pts;
+                    count++;
+                }
+            }
+        }
+        return count > 0 ? OptionalDouble.of(sum / count) : OptionalDouble.empty();
+    }
+
+    private static int acquisitionPoints(String abbrev) {
+        if (abbrev == null) return -1;
+        return switch (abbrev.trim().toUpperCase()) {
+            case "A+" -> 50;
+            case "A"  -> 40;
+            case "C"  -> 25;
+            case "E"  -> 10;
+            default   -> -1; // Ne, ABS and any other levels excluded
+        };
+    }
+
+    private static String formatAvg(double score) {
+        String s = String.format(Locale.ROOT, "%.2f", score);
+        if (s.contains(".")) {
+            s = s.replaceAll("0+$", "").replaceAll("\\.$", "");
+        }
+        return s;
+    }
+
+    private static String renderAvgBadge(double score) {
+        // Midpoints between {10, 25, 40, 50}: 17.5, 32.5, 45
+        String abbrev, cssClass;
+        if (score >= 45) {
+            abbrev = "A+"; cssClass = "level-dot--aplus";
+        } else if (score >= 32.5) {
+            abbrev = "A";  cssClass = "level-dot--a";
+        } else if (score >= 17.5) {
+            abbrev = "C";  cssClass = "level-dot--c";
+        } else {
+            abbrev = "E";  cssClass = "level-dot--e";
+        }
+        String dotText = "A+".equals(abbrev) ? "+" : "";
+        return "<span class=\"level-dot " + cssClass + " subject-avg__badge\" "
+             + "title=\"Moyenne\u00a0: " + abbrev + "\">" + dotText + "</span>";
     }
 
     // -------------------------------------------------------------------------
@@ -412,6 +476,21 @@ public class EvaluationSummaryHtmlGenerator {
           flex-wrap: wrap;
           gap: 0.2rem;
           flex-shrink: 0;
+        }
+
+        /* ----- Subject average score + badge ----- */
+        .subject-avg__score {
+          margin-left: auto;
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: var(--text-2);
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+
+        .subject-avg__badge {
+          flex-shrink: 0;
+          cursor: default;
         }
         """;
 }
