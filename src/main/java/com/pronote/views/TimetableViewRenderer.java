@@ -74,10 +74,13 @@ public class TimetableViewRenderer {
         List<LocalDate> dates = upcomingWeekdays(viewConfig.getDaysAhead());
         log.info("Generating timetable views for {} days in {}", dates.size(), outDir);
 
-        for (LocalDate date : dates) {
+        for (int i = 0; i < dates.size(); i++) {
+            LocalDate date     = dates.get(i);
+            LocalDate prevDate = i > 0              ? dates.get(i - 1) : null;
+            LocalDate nextDate = i < dates.size()-1 ? dates.get(i + 1) : null;
             List<TimetableEntry> dayEntries = entriesForDate(allEntries, date);
             Map<String, List<Assignment>> assignsBySubject = groupAssignmentsBySubject(allAssignments, date);
-            String html = generator.generate(date, dayEntries, assignsBySubject);
+            String html = generator.generate(date, prevDate, nextDate, dayEntries, assignsBySubject);
             Path file = outDir.resolve(date + ".html");
             writeFile(file, html);
             log.debug("Written {}", file.getFileName());

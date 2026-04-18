@@ -57,7 +57,8 @@ public class TimetableHtmlGenerator {
      *                              empty map means no assignment chips will be rendered
      * @return a complete, self-contained HTML5 document
      */
-    public String generate(LocalDate date, List<TimetableEntry> entries,
+    public String generate(LocalDate date, LocalDate prevDate, LocalDate nextDate,
+                           List<TimetableEntry> entries,
                            Map<String, List<Assignment>> assignmentsBySubject) {
         String fullDate  = capitalize(date.format(FULL_DATE_FMT));
         String titleDate = capitalize(date.format(SHORT_DATE_FMT));
@@ -78,7 +79,23 @@ public class TimetableHtmlGenerator {
           .append("</head>\n")
           .append("<body>\n")
           .append("  <div class=\"page\">\n")
-          .append("    <nav class=\"nav\"><a class=\"nav__back\" href=\"index.html\">\u2190\u00a0Semaine</a></nav>\n")
+          .append("    <nav class=\"nav\">\n")
+          .append("      <a class=\"nav__back\" href=\"index.html\">\u2190\u00a0Semaine</a>\n")
+          .append("      <div class=\"nav__pager\">\n");
+
+        if (prevDate != null) {
+            sb.append("        <a class=\"nav__page-link\" href=\"").append(prevDate).append(".html\">Pr\u00e9c\u00e9dent</a>\n");
+        } else {
+            sb.append("        <span class=\"nav__page-link nav__page-link--disabled\">Pr\u00e9c\u00e9dent</span>\n");
+        }
+        if (nextDate != null) {
+            sb.append("        <a class=\"nav__page-link\" href=\"").append(nextDate).append(".html\">Suivant</a>\n");
+        } else {
+            sb.append("        <span class=\"nav__page-link nav__page-link--disabled\">Suivant</span>\n");
+        }
+
+        sb.append("      </div>\n")
+          .append("    </nav>\n")
           .append("    <header class=\"day-header\">\n")
           .append("      <h1 class=\"day-header__date\"><time datetime=\"").append(date).append("\">").append(fullDate).append("</time></h1>\n")
           .append("    </header>\n")
@@ -331,7 +348,7 @@ public class TimetableHtmlGenerator {
         String ariaLabel = label + "\u00a0\u2014\u00a0" + esc(displaySubject);
         return "          <div class=\"lesson__assign-wrap\">\n"
              + "            <button class=\"lesson__assign-chip\" aria-label=\"" + ariaLabel + "\">"
-             + count + "</button>\n"
+             + label + "</button>\n"
              + renderAssignDetail(displaySubject, assignments)
              + "          </div>\n";
     }
@@ -558,8 +575,13 @@ public class TimetableHtmlGenerator {
           margin: 0 auto;
         }
 
-        /* ----- Navigation back link ----- */
-        .nav { margin-bottom: 0.5rem; }
+        /* ----- Navigation bar ----- */
+        .nav {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 0.5rem;
+        }
 
         .nav__back {
           display: inline-flex;
@@ -569,6 +591,25 @@ public class TimetableHtmlGenerator {
           text-decoration: none;
         }
         .nav__back:hover { color: var(--text-1); }
+
+        .nav__pager {
+          display: flex;
+          align-items: center;
+          gap: 0.875rem;
+        }
+
+        .nav__page-link {
+          font-size: 0.875rem;
+          color: var(--text-2);
+          text-decoration: none;
+        }
+        .nav__page-link:hover { color: var(--text-1); }
+
+        .nav__page-link--disabled {
+          opacity: 0.35;
+          pointer-events: none;
+          cursor: default;
+        }
 
         /* ----- Day header ----- */
         .day-header { padding: 0.5rem 0 1.25rem; }
