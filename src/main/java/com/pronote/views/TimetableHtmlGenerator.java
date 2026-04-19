@@ -344,10 +344,12 @@ public class TimetableHtmlGenerator {
     /** Renders the chip button and its hidden detail panel (cloned into dialog on click). */
     private String renderAssignChip(String displaySubject, List<Assignment> assignments) {
         int count = assignments.size();
+        boolean allDone = assignments.stream().allMatch(Assignment::isDone);
         String label = count + "\u00a0devoir" + (count > 1 ? "s" : "");
         String ariaLabel = label + "\u00a0\u2014\u00a0" + esc(displaySubject);
+        String chipClass = "lesson__assign-chip" + (allDone ? " lesson__assign-chip--done" : "");
         return "          <div class=\"lesson__assign-wrap\">\n"
-             + "            <button class=\"lesson__assign-chip\" aria-label=\"" + ariaLabel + "\">"
+             + "            <button class=\"" + chipClass + "\" aria-label=\"" + ariaLabel + "\">"
              + label + "</button>\n"
              + renderAssignDetail(displaySubject, assignments)
              + "          </div>\n";
@@ -816,6 +818,11 @@ public class TimetableHtmlGenerator {
           color: var(--bdg-cancel-fg);
         }
 
+        .day-card__assign-done {
+          text-decoration: line-through;
+          color: var(--text-3);
+        }
+
         /* ----- Replaced-class note (class replacement inside a lesson card) ----- */
         .lesson__replaced {
           display: flex;
@@ -883,6 +890,11 @@ public class TimetableHtmlGenerator {
 
         .lesson__assign-chip:hover {
           color: var(--text-1);
+        }
+
+        .lesson__assign-chip--done {
+          text-decoration: line-through;
+          opacity: 0.5;
         }
 
         /* ----- Assignment popup content ----- */

@@ -102,11 +102,12 @@ public class TimetableViewRenderer {
         StringBuilder cards = new StringBuilder();
         for (LocalDate date : dates) {
             List<TimetableEntry> dayEntries = entriesForDate(allEntries, date);
-            long assignCount = allAssignments.stream()
-                .filter(a -> date.equals(a.getDueDate()) && !a.isDone()
-                          && !AssignmentHtmlGenerator.isBlankAssignment(a))
-                .count();
-            cards.append(renderDayCard(date, dayEntries, assignCount));
+            List<Assignment> dayAssigns = allAssignments.stream()
+                .filter(a -> date.equals(a.getDueDate()) && !AssignmentHtmlGenerator.isBlankAssignment(a))
+                .toList();
+            long totalAssignCount = dayAssigns.size();
+            long doneAssignCount  = dayAssigns.stream().filter(Assignment::isDone).count();
+            cards.append(renderDayCard(date, dayEntries, totalAssignCount, doneAssignCount));
         }
 
         return "<!DOCTYPE html>\n"
@@ -132,7 +133,8 @@ public class TimetableViewRenderer {
             + "</html>\n";
     }
 
-    private String renderDayCard(LocalDate date, List<TimetableEntry> entries, long assignCount) {
+    private String renderDayCard(LocalDate date, List<TimetableEntry> entries,
+                                  long totalAssignCount, long doneAssignCount) {
         String dow      = capitalize(date.format(DAY_OF_WEEK_FMT));
         String shortDt  = capitalize(date.format(SHORT_DATE_FMT));
         String href     = date + ".html";
@@ -166,9 +168,15 @@ public class TimetableViewRenderer {
             }
         }
 
-        if (assignCount > 0) {
-            metaLine += "\u00a0\u00b7\u00a0" + assignCount
-                + "\u00a0devoir" + (assignCount > 1 ? "s" : "");
+        if (totalAssignCount > 0) {
+            boolean allDone = doneAssignCount == totalAssignCount;
+            if (allDone) {
+                String label = totalAssignCount + "\u00a0devoir" + (totalAssignCount > 1 ? "s" : "");
+                metaLine += "\u00a0\u00b7\u00a0<span class=\"day-card__assign-done\">" + label + "</span>";
+            } else {
+                long undone = totalAssignCount - doneAssignCount;
+                metaLine += "\u00a0\u00b7\u00a0" + undone + "\u00a0devoir" + (undone > 1 ? "s" : "");
+            }
         }
 
         long evalCount = entries.stream().filter(TimetableEntry::isEval).count();
