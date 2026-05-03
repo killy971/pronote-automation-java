@@ -440,6 +440,9 @@ public class Main {
                         + dataDir.resolve("snapshots/assignments/latest.json")
                         + " — run 'make run' first to fetch data.");
             }
+            // Re-apply teacher-based enrichment so that snapshots saved before the
+            // enrichment config was last updated still render with the correct subject names.
+            reEnrichAssignmentsWithTeacher(assignmentsData, timetableData, enricher);
             log.info("Regenerating assignment view from snapshot ({} entries)...", assignmentsData.size());
             new AssignmentViewRenderer(config.getAssignmentView()).render(assignmentsData, timetableData);
         }
