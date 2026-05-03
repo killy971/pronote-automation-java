@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Generates and writes static HTML timetable view files.
@@ -88,6 +89,8 @@ public class TimetableViewRenderer {
 
         String indexHtml = generateIndex(dates, allEntries, allAssignments);
         writeFile(outDir.resolve("index.html"), indexHtml);
+
+        generateCurrentPage(outDir, dates, allEntries, allAssignments);
         log.info("Timetable views written to {}", outDir);
     }
 
@@ -102,6 +105,7 @@ public class TimetableViewRenderer {
         StringBuilder cards = new StringBuilder();
         for (LocalDate date : dates) {
             List<TimetableEntry> dayEntries = entriesForDate(allEntries, date);
+            if (dayEntries.isEmpty()) continue;
             List<Assignment> dayAssigns = allAssignments.stream()
                 .filter(a -> date.equals(a.getDueDate()) && !AssignmentHtmlGenerator.isBlankAssignment(a))
                 .toList();
@@ -195,6 +199,81 @@ public class TimetableViewRenderer {
              + "        <div class=\"day-card__meta\">" + metaLine + "</div>"
              + alertLine + "\n"
              + "      </a>\n";
+    }
+
+    // -------------------------------------------------------------------------
+    // Current page (today / next non-empty day)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Writes {@code current.html}: the current day's timetable if we are still within 90 minutes
+     * of the last class of the day; otherwise the next non-empty weekday in the snapshot.
+     */
+    private void generateCurrentPage(Path outDir, List<LocalDate> dates,
+                                     List<TimetableEntry> allEntries,
+                                     List<Assignment> allAssignments) {
+        LocalDate target = computeCurrentPageDate(dates, allEntries);
+        String html;
+        if (target == null) {
+            html = generateNoUpcomingPage();
+        } else {
+            int idx = dates.indexOf(target);
+            LocalDate prevDate = idx > 0              ? dates.get(idx - 1) : null;
+            LocalDate nextDate = idx >= 0 && idx < dates.size() - 1 ? dates.get(idx + 1) : null;
+            List<TimetableEntry> dayEntries = entriesForDate(allEntries, target);
+            Map<String, List<Assignment>> assignsBySubject = groupAssignmentsBySubject(allAssignments, target);
+            html = generator.generate(target, prevDate, nextDate, dayEntries, assignsBySubject);
+        }
+        writeFile(outDir.resolve("current.html"), html);
+        log.debug("Written current.html (target={})", target);
+    }
+
+    /**
+     * Returns the date whose timetable {@code current.html} should display.
+     *
+     * <p>Shows today when today has classes and the current time is no more than 90 minutes
+     * past the last class's end time. Otherwise returns the nearest upcoming non-empty weekday
+     * in the dates list, or {@code null} if none exists.
+     */
+    private LocalDate computeCurrentPageDate(List<LocalDate> dates, List<TimetableEntry> allEntries) {
+        LocalDate today = LocalDate.now();
+        LocalDateTime now = LocalDateTime.now();
+
+        List<TimetableEntry> todayEntries = entriesForDate(allEntries, today);
+        if (!todayEntries.isEmpty()) {
+            Optional<LocalDateTime> lastEnd = todayEntries.stream()
+                .filter(e -> e.getEndTime() != null)
+                .map(TimetableEntry::getEndTime)
+                .max(Comparator.naturalOrder());
+            if (lastEnd.isPresent() && now.isBefore(lastEnd.get().plusMinutes(90))) {
+                return today;
+            }
+        }
+
+        LocalDate tomorrow = today.plusDays(1);
+        return dates.stream()
+            .filter(d -> !d.isBefore(tomorrow))
+            .filter(d -> !entriesForDate(allEntries, d).isEmpty())
+            .findFirst()
+            .orElse(null);
+    }
+
+    private String generateNoUpcomingPage() {
+        return "<!DOCTYPE html>\n"
+            + "<html lang=\"fr\">\n"
+            + "<head>\n"
+            + "  <meta charset=\"UTF-8\">\n"
+            + "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+            + "  <title>Emploi du temps</title>\n"
+            + "  <style>" + TimetableHtmlGenerator.CSS + "</style>\n"
+            + "</head>\n"
+            + "<body>\n"
+            + "  <div class=\"page\">\n"
+            + "    <nav class=\"nav\"><a class=\"nav__back\" href=\"index.html\">← Semaine</a></nav>\n"
+            + "    <p class=\"empty-day\">Aucun cours à venir dans le calendrier chargé.</p>\n"
+            + "  </div>\n"
+            + "</body>\n"
+            + "</html>\n";
     }
 
     // -------------------------------------------------------------------------
