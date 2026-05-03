@@ -1170,13 +1170,14 @@ public class Main {
      *
      * <p>The Pronote homework API does not expose the teacher for each assignment.
      * This method resolves the teacher by matching the assignment's {@code subject}
-     * and {@code assignedDate} against timetable entries. When a match is found,
-     * {@link SubjectEnricher#enrich(String, String)} is called again with the resolved
-     * teacher so that teacher-specific rules (e.g. splitting "HISTOIRE-GEOGRAPHIE" by
-     * teacher) apply to assignments as well.
+     * against timetable entries on the {@code dueDate} (tried first, as it falls within
+     * the upcoming timetable window) and then on the {@code assignedDate} as a fallback.
+     * When a match is found, {@link SubjectEnricher#enrich(String, String)} is called
+     * again with the resolved teacher so that teacher-specific rules (e.g. splitting
+     * "HISTOIRE-GEOGRAPHIE" by teacher) apply to assignments as well.
      *
-     * <p>If no timetable entry matches (e.g. the assignment date falls outside the
-     * fetched timetable range), the enrichment set by the scraper is kept unchanged.
+     * <p>If no timetable entry matches on either date, the enrichment set by the scraper
+     * is kept unchanged.
      */
     /**
      * Resolves start/end times for synthetic manual eval entries by finding the matching
@@ -1226,22 +1227,33 @@ public class Main {
             SubjectEnricher subjectEnricher) {
         if (assignments.isEmpty() || timetable.isEmpty()) return;
         for (Assignment a : assignments) {
-            if (a.getSubject() == null || a.getAssignedDate() == null) continue;
-            String teacher = timetable.stream()
-                    .filter(e -> e.getStartTime() != null
-                            && a.getAssignedDate().equals(e.getStartTime().toLocalDate())
-                            && a.getSubject().equals(e.getSubject())
-                            && e.getTeacher() != null && !e.getTeacher().isBlank())
-                    .map(TimetableEntry::getTeacher)
-                    .findFirst()
-                    .orElse(null);
+            if (a.getSubject() == null) continue;
+            // dueDate is tried first: it falls within the upcoming timetable window.
+            // assignedDate is a fallback for the case where past weeks were also fetched.
+            String teacher = findTeacherInTimetable(a.getSubject(), a.getDueDate(), timetable);
+            if (teacher == null) {
+                teacher = findTeacherInTimetable(a.getSubject(), a.getAssignedDate(), timetable);
+            }
             if (teacher != null) {
                 String enriched = subjectEnricher.enrich(a.getSubject(), teacher);
-                log.debug("Assignment '{}' (assigned {}) resolved teacher '{}' → enrichedSubject='{}'",
-                        a.getSubject(), a.getAssignedDate(), teacher, enriched);
+                log.debug("Assignment '{}' (due {}) resolved teacher '{}' → enrichedSubject='{}'",
+                        a.getSubject(), a.getDueDate(), teacher, enriched);
                 a.setEnrichedSubject(enriched);
             }
         }
+    }
+
+    private static String findTeacherInTimetable(String subject, LocalDate date,
+            List<TimetableEntry> timetable) {
+        if (date == null) return null;
+        return timetable.stream()
+                .filter(e -> e.getStartTime() != null
+                        && date.equals(e.getStartTime().toLocalDate())
+                        && subject.equals(e.getSubject())
+                        && e.getTeacher() != null && !e.getTeacher().isBlank())
+                .map(TimetableEntry::getTeacher)
+                .findFirst()
+                .orElse(null);
     }
 
     private static String truncate(String s, int maxLen) {
