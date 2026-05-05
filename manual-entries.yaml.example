@@ -61,6 +61,12 @@ assignments:
     dueDate: "2026-04-28"
     assignedDate: "2026-04-17"   # when the work was given; defaults to dueDate if omitted
 
+  # ── Mark as already done (renders with strikethrough + "Fait" badge) ─────
+  - subject: "MATHEMATIQUES"
+    description: "Exercices page 34"
+    dueDate: "2026-04-20"
+    done: true
+
   # ── Histoire — teacher disambiguates enrichment (→ "Histoire") ───────────
   - subject: "HISTOIRE-GEOGRAPHIE"
     description: "Apprendre le cours sur la naissance du monothéisme"

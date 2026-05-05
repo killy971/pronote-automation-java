@@ -108,7 +108,7 @@ public class ManualEntryLoader {
         a.setDescription(e.getDescription());
         a.setDueDate(dueDate);
         a.setAssignedDate(assignedDate);
-        a.setDone(false);
+        a.setDone(e.isDone());
         return a;
     }
 
@@ -195,6 +195,7 @@ public class ManualEntryLoader {
         private String description;
         private String dueDate;
         private String assignedDate;  // optional — defaults to dueDate if absent
+        private boolean done;         // optional — default false
 
         public String getSubject() { return subject; }
         public void setSubject(String subject) { this.subject = subject; }
@@ -207,6 +208,9 @@ public class ManualEntryLoader {
 
         public String getAssignedDate() { return assignedDate; }
         public void setAssignedDate(String assignedDate) { this.assignedDate = assignedDate; }
+
+        public boolean isDone() { return done; }
+        public void setDone(boolean done) { this.done = done; }
     }
 
     public static class EvaluationEntry {
