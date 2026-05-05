@@ -26,6 +26,9 @@ public class Assignment implements Identifiable {
      *  subject-only rules when no matching timetable entry is found.
      *  Equals {@code subject} when no rule matches. */
     private String enrichedSubject;
+    /** Teacher name. Null for Pronote-scraped assignments (the API does not expose it); set
+     *  explicitly for manual entries when the {@code teacher:} field is present in the YAML. */
+    private String teacher;
     private String description;
     private LocalDate dueDate;
     private LocalDate assignedDate;
@@ -48,6 +51,9 @@ public class Assignment implements Identifiable {
 
     public String getEnrichedSubject() { return enrichedSubject; }
     public void setEnrichedSubject(String enrichedSubject) { this.enrichedSubject = enrichedSubject; }
+
+    public String getTeacher() { return teacher; }
+    public void setTeacher(String teacher) { this.teacher = teacher; }
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }

@@ -104,7 +104,8 @@ public class ManualEntryLoader {
         Assignment a = new Assignment();
         a.setId("manual:" + e.getSubject() + "@" + dueDate + "@" + e.getDescription());
         a.setSubject(e.getSubject());
-        a.setEnrichedSubject(enricher.enrich(e.getSubject(), null));
+        a.setTeacher(e.getTeacher());
+        a.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher()));
         a.setDescription(e.getDescription());
         a.setDueDate(dueDate);
         a.setAssignedDate(assignedDate);
@@ -196,6 +197,7 @@ public class ManualEntryLoader {
         private String dueDate;
         private String assignedDate;  // optional — defaults to dueDate if absent
         private boolean done;         // optional — default false
+        private String teacher;       // optional — enables teacher-specific enrichment rules
 
         public String getSubject() { return subject; }
         public void setSubject(String subject) { this.subject = subject; }
@@ -211,6 +213,9 @@ public class ManualEntryLoader {
 
         public boolean isDone() { return done; }
         public void setDone(boolean done) { this.done = done; }
+
+        public String getTeacher() { return teacher; }
+        public void setTeacher(String teacher) { this.teacher = teacher; }
     }
 
     public static class EvaluationEntry {

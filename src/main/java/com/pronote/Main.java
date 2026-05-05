@@ -1231,9 +1231,14 @@ public class Main {
         if (assignments.isEmpty() || timetable.isEmpty()) return;
         for (Assignment a : assignments) {
             if (a.getSubject() == null) continue;
-            // dueDate is tried first: it falls within the upcoming timetable window.
+            // Manual entries may carry an explicit teacher — use it directly and skip timetable
+            // lookup so the user's intent is not overwritten by a different timetable slot.
+            // dueDate is tried first for scraped entries: it falls within the upcoming window.
             // assignedDate is a fallback for the case where past weeks were also fetched.
-            String teacher = findTeacherInTimetable(a.getSubject(), a.getDueDate(), timetable);
+            String teacher = a.getTeacher();
+            if (teacher == null) {
+                teacher = findTeacherInTimetable(a.getSubject(), a.getDueDate(), timetable);
+            }
             if (teacher == null) {
                 teacher = findTeacherInTimetable(a.getSubject(), a.getAssignedDate(), timetable);
             }
