@@ -424,6 +424,11 @@ public class Main {
             }
         }
 
+        // Re-apply teacher-based enrichment once, before any view is rendered, so that
+        // both the timetable and assignment views see consistent enrichedSubject values.
+        // This also re-enriches snapshots saved before the enrichment config was last updated.
+        reEnrichAssignmentsWithTeacher(assignmentsData, timetableData, enricher);
+
         if (timetableViewEnabled) {
             if (timetableSnap.isEmpty()) {
                 throw new RuntimeException("No timetable snapshot found at "
@@ -440,9 +445,6 @@ public class Main {
                         + dataDir.resolve("snapshots/assignments/latest.json")
                         + " — run 'make run' first to fetch data.");
             }
-            // Re-apply teacher-based enrichment so that snapshots saved before the
-            // enrichment config was last updated still render with the correct subject names.
-            reEnrichAssignmentsWithTeacher(assignmentsData, timetableData, enricher);
             log.info("Regenerating assignment view from snapshot ({} entries)...", assignmentsData.size());
             new AssignmentViewRenderer(config.getAssignmentView()).render(assignmentsData, timetableData);
         }
@@ -1173,14 +1175,16 @@ public class Main {
      *
      * <p>The Pronote homework API does not expose the teacher for each assignment.
      * This method resolves the teacher by matching the assignment's {@code subject}
-     * against timetable entries on the {@code dueDate} (tried first, as it falls within
-     * the upcoming timetable window) and then on the {@code assignedDate} as a fallback.
+     * against timetable entries. The {@code dueDate} is tried first as it is most likely
+     * to be a class day for that teacher. If the due date has multiple distinct teachers
+     * for the same subject (ambiguous), the {@code assignedDate} is used as a tiebreaker —
+     * it identifies the teacher who actually gave the assignment.
      * When a match is found, {@link SubjectEnricher#enrich(String, String)} is called
      * again with the resolved teacher so that teacher-specific rules (e.g. splitting
      * "HISTOIRE-GEOGRAPHIE" by teacher) apply to assignments as well.
      *
-     * <p>If no timetable entry matches on either date, the enrichment set by the scraper
-     * is kept unchanged.
+     * <p>If no unambiguous timetable entry matches on either date, the enrichment set by
+     * the scraper is kept unchanged.
      */
     /**
      * Resolves start/end times for synthetic manual eval entries by finding the matching
@@ -1233,8 +1237,9 @@ public class Main {
             if (a.getSubject() == null) continue;
             // Manual entries may carry an explicit teacher — use it directly and skip timetable
             // lookup so the user's intent is not overwritten by a different timetable slot.
-            // dueDate is tried first for scraped entries: it falls within the upcoming window.
-            // assignedDate is a fallback for the case where past weeks were also fetched.
+            // dueDate is tried first: it is most likely to be a class day for the subject.
+            // When dueDate is ambiguous (multiple distinct teachers that day), assignedDate
+            // is used as a tiebreaker — it pinpoints the teacher who gave the assignment.
             String teacher = a.getTeacher();
             if (teacher == null) {
                 teacher = findTeacherInTimetable(a.getSubject(), a.getDueDate(), timetable);
@@ -1254,14 +1259,15 @@ public class Main {
     private static String findTeacherInTimetable(String subject, LocalDate date,
             List<TimetableEntry> timetable) {
         if (date == null) return null;
-        return timetable.stream()
+        List<String> teachers = timetable.stream()
                 .filter(e -> e.getStartTime() != null
                         && date.equals(e.getStartTime().toLocalDate())
                         && subject.equals(e.getSubject())
                         && e.getTeacher() != null && !e.getTeacher().isBlank())
                 .map(TimetableEntry::getTeacher)
-                .findFirst()
-                .orElse(null);
+                .distinct()
+                .toList();
+        return teachers.size() == 1 ? teachers.get(0) : null;
     }
 
     private static String truncate(String s, int maxLen) {
