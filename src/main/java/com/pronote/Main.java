@@ -99,11 +99,12 @@ public class Main {
 
         String mode = resolveMode(args);
         switch (mode) {
-            case "fetch" -> runFetch(config, dataDir, dryRun);
-            case "views" -> runViews(config, dataDir);
-            case "diff"  -> runDiff(config, dataDir, dryRun);
+            case "fetch"    -> runFetch(config, dataDir, dryRun);
+            case "views"    -> runViews(config, dataDir);
+            case "diff"     -> runDiff(config, dataDir, dryRun);
+            case "validate" -> runValidate(config, dataDir);
             default -> throw new IllegalArgumentException(
-                    "Unknown --mode '" + mode + "'. Valid modes: fetch, views, diff");
+                    "Unknown --mode '" + mode + "'. Valid modes: fetch, views, diff, validate");
         }
     }
 
@@ -636,6 +637,86 @@ public class Main {
     }
 
     // -------------------------------------------------------------------------
+    // Mode: validate — parse manual-entries.yaml and report what would be merged (offline)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Loads {@code manual-entries.yaml}, runs subject enrichment, and prints a per-entry summary
+     * of how each entry would be merged on the next {@code fetch}/{@code views} run — without
+     * touching the network, snapshots, or notifications.
+     *
+     * <p>Each entry is cross-checked against the latest timetable snapshot to flag subjects
+     * that never appear there (likely typo in the YAML's all-caps {@code subject:} string,
+     * which is the most common source of silent failure for manual entries).
+     *
+     * <p>Exits 0 when the file parses and all required fields are present, 1 otherwise.
+     * The "subject not seen in timetable" check produces warnings, not failures — some
+     * subjects (e.g. fictional or one-off events) legitimately won't appear in the timetable.
+     */
+    private static void runValidate(AppConfig config, Path dataDir) {
+        SubjectEnricher enricher = new SubjectEnricher(config.getSubjectEnrichment());
+        Path file = Path.of(config.getManualEntries().getFile());
+
+        log.info("Validating manual entries from {}", file.toAbsolutePath());
+        if (!Files.exists(file)) {
+            log.warn("Manual entries file not found: {} (this is fine; the file is optional)",
+                    file.toAbsolutePath());
+            return;
+        }
+
+        // ManualEntryLoader.load throws ConfigException on parse/required-field errors —
+        // let it propagate to main(), which logs and exits 1.
+        ManualEntryLoader.ManualEntries manual = ManualEntryLoader.load(file, enricher);
+
+        // Build the set of subjects seen in the latest timetable snapshot to flag typos.
+        // Empty when the user has never run --mode fetch — in that case we skip the check
+        // rather than warn on every entry.
+        SnapshotStore snapshotStore = new SnapshotStore(dataDir, config.getData().getArchiveRetainDays());
+        Optional<List<TimetableEntry>> timetableSnap =
+                snapshotStore.loadLatest("timetable", new TypeReference<>() {});
+        Set<String> knownSubjects = timetableSnap.map(list -> {
+            Set<String> s = new HashSet<>();
+            for (TimetableEntry e : list) if (e.getSubject() != null) s.add(e.getSubject());
+            return s;
+        }).orElse(Set.of());
+
+        int warnings = 0;
+
+        log.info("─── Assignments ({}) ───", manual.getAssignments().size());
+        for (Assignment a : manual.getAssignments()) {
+            String suffix = "";
+            if (!knownSubjects.isEmpty() && !knownSubjects.contains(a.getSubject())) {
+                suffix = "  ⚠ subject not seen in latest timetable snapshot";
+                warnings++;
+            }
+            log.info("  {} | subject='{}' → '{}' | dueDate={} | done={}{}",
+                    a.getId(), a.getSubject(), a.getEnrichedSubject(),
+                    a.getDueDate(), a.isDone(), suffix);
+        }
+
+        log.info("─── Upcoming evaluations ({}) ───", manual.getUpcomingEvals().size());
+        for (TimetableEntry e : manual.getUpcomingEvals()) {
+            String suffix = "";
+            if (!knownSubjects.isEmpty() && !knownSubjects.contains(e.getSubject())) {
+                suffix = "  ⚠ subject not seen in latest timetable snapshot";
+                warnings++;
+            }
+            log.info("  {} | subject='{}' → '{}' | date={} | name='{}'{}",
+                    e.getId(), e.getSubject(), e.getEnrichedSubject(),
+                    e.getStartTime().toLocalDate(), e.getLessonLabel(), suffix);
+        }
+
+        if (knownSubjects.isEmpty()) {
+            log.info("(No timetable snapshot found — subject existence check skipped.)");
+        }
+        if (warnings == 0) {
+            log.info("Manual entries valid.");
+        } else {
+            log.warn("Manual entries valid — {} warning(s); review the subject strings above.", warnings);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Session management
     // -------------------------------------------------------------------------
 
@@ -844,8 +925,25 @@ public class Main {
             }
         }
 
-        // 4. Other timetable changes (non-cancelled additions, removals, other modifications)
-        long otherTtChanges = tt.added().stream().filter(e -> e.getStatus() != EntryStatus.CANCELLED).count()
+        // 4a. Newly announced upcoming competence evaluations (timetable isEval=true)
+        // These come from either the Pronote timetable or the manual-entries.yaml evaluations:
+        // block (which is converted to synthetic TimetableEntry(isEval=true) by ManualEntryLoader).
+        // Surfaced separately from generic timetable mods so they get a distinct glance line.
+        List<TimetableEntry> addedEvalEntries = tt.added().stream()
+                .filter(e -> e.isEval() && e.getStatus() != EntryStatus.CANCELLED)
+                .toList();
+        if (!addedEvalEntries.isEmpty()) {
+            if (addedEvalEntries.size() == 1) {
+                TimetableEntry e = addedEvalEntries.get(0);
+                tokens.add("📝 " + subject(e) + " éval · " + fmtDate(e.getStartTime().toLocalDate()));
+            } else {
+                tokens.add("📝 " + addedEvalEntries.size() + " évals à venir");
+            }
+        }
+
+        // 4b. Other timetable changes (non-cancelled non-eval additions, removals, other modifications)
+        long otherTtChanges = tt.added().stream()
+                .filter(e -> e.getStatus() != EntryStatus.CANCELLED && !e.isEval()).count()
                 + tt.removed().size()
                 + tt.modified().entrySet().stream()
                     .filter(e -> !cancelledEntries.contains(e.getKey())).count();
@@ -936,9 +1034,19 @@ public class Main {
 
     private static void appendTimetableLines(StringBuilder b, DiffResult<TimetableEntry> diff) {
         for (TimetableEntry e : diff.added()) {
-            String prefix = e.getStatus() == EntryStatus.CANCELLED ? "✗ " : "+ ";
+            // Upcoming competence eval (isEval=true) gets a distinct marker so the user spots
+            // it among regular timetable changes. The eval's own label (e.g. "DS énergie")
+            // replaces the room field since rooms are uninformative for evaluations.
+            String prefix;
+            if (e.getStatus() == EntryStatus.CANCELLED) prefix = "✗ ";
+            else if (e.isEval())                        prefix = "📝 ";
+            else                                        prefix = "+ ";
             b.append(prefix).append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()));
-            if (e.getRoom() != null && !e.getRoom().isBlank()) b.append(" (").append(e.getRoom()).append(")");
+            if (e.isEval() && e.getLessonLabel() != null && !e.getLessonLabel().isBlank()) {
+                b.append(" — ").append(truncate(e.getLessonLabel(), 60));
+            } else if (e.getRoom() != null && !e.getRoom().isBlank()) {
+                b.append(" (").append(e.getRoom()).append(")");
+            }
             b.append("\n");
         }
         for (TimetableEntry e : diff.removed()) {

@@ -39,6 +39,12 @@ class TimetableDiffFilterTest {
         return e;
     }
 
+    private static TimetableEntry evalEntry(String id, LocalDate day) {
+        TimetableEntry e = entry(id, day, EntryStatus.NORMAL);
+        e.setEval(true);
+        return e;
+    }
+
     private static DiffResult<TimetableEntry> diff(
             List<TimetableEntry> added,
             List<TimetableEntry> removed,
@@ -101,6 +107,12 @@ class TimetableDiffFilterTest {
     void isNoteworthy_normalWithStatusLabel_isTrue() {
         assertTrue(TimetableDiffFilter.isNoteworthyTimetableEntry(
                 entryWithLabel("x", MONDAY_FUTURE, "Prof. absent")));
+    }
+
+    @Test
+    void isNoteworthy_eval_isTrue() {
+        assertTrue(TimetableDiffFilter.isNoteworthyTimetableEntry(
+                evalEntry("x", MONDAY_FUTURE)));
     }
 
     @Test
@@ -172,6 +184,19 @@ class TimetableDiffFilterTest {
 
         assertEquals(1, result.added().size());
         assertEquals("c1", result.added().get(0).getId());
+    }
+
+    @Test
+    void evalAdditions_inNewlyDiscoveredWeek_areKept() {
+        TimetableEntry eval   = evalEntry("e1", MONDAY_FUTURE);
+        TimetableEntry normal = entry("n1", MONDAY_FUTURE.plusDays(1), EntryStatus.NORMAL);
+
+        DiffResult<TimetableEntry> raw = diff(List.of(eval, normal), List.of(), Map.of());
+        DiffResult<TimetableEntry> result = filter.filter(raw, List.of(), MONDAY_FUTURE, NOW);
+
+        assertEquals(1, result.added().size(),
+                "Upcoming evals must not be suppressed in newly discovered weeks");
+        assertEquals("e1", result.added().get(0).getId());
     }
 
     @Test

@@ -32,15 +32,18 @@ Target runtime: **Raspberry Pi (Raspbian)**, triggered by two systemd timers —
 |---|---|---|
 | `--config <path>` | No (default: `config.yaml`) | Path to the YAML configuration file |
 | `--features <list>` | No (default: config `features.*` flags) | Comma-separated subset of features to run: `assignments`, `timetable`, `grades`, `evaluations`, `schoolLife`. Overrides all `features.*` flags in config for this invocation. Unknown names fail fast. |
-| `--mode <mode>` | No (default: `fetch`) | Run mode: `fetch` (full online pipeline), `views` (regenerate HTML from last snapshot, offline), `diff` (re-run diff between last two snapshots + re-notify, offline). |
+| `--mode <mode>` | No (default: `fetch`) | Run mode: `fetch` (full online pipeline), `views` (regenerate HTML from last snapshot, offline), `diff` (re-run diff between last two snapshots + re-notify, offline), `validate` (parse `manual-entries.yaml`, report what would be merged, no network/snapshot/notification side-effects). |
+| `--dry-run` | No | In `fetch` and `diff` modes, log the notification payload to stdout instead of delivering it. Has no effect in `views`/`validate` mode. |
 
 **Make targets:**
 
 | Target | Description |
 |---|---|
 | `make run` | Full run: fetch from Pronote, diff, notify, save snapshots, generate views |
-| `make views` | Offline: regenerate HTML timetable views from `data/snapshots/timetable/latest.json` |
+| `make views` | Offline: regenerate HTML views (all enabled types) from the last snapshots |
 | `make diff` | Offline: re-run diff between archive[-1] and `latest.json`, re-notify if changes exist |
+| `make notify-preview` | Offline: same as `make diff` with `--dry-run` (no notifications actually sent) |
+| `make validate` | Offline: parse `manual-entries.yaml` and report what would be merged on next fetch |
 | `make run-debug` | Same as `make run` with DEBUG logging |
 | `make build` | Compile and package the fat JAR |
 | `make test` | Run unit tests |
@@ -50,19 +53,26 @@ Target runtime: **Raspberry Pi (Raspbian)**, triggered by two systemd timers —
 ## Architecture Summary
 
 ```
-Main
- ├── ConfigLoader          → loads config.yaml (SnakeYAML)
- ├── LockoutGuard          → halts job after N consecutive login failures
- ├── SessionStore          → load/save session.json (persists AES keys + cookies)
- ├── PronoteAuthenticator  → full 10-step login flow
- ├── PronoteHttpClient     → AES-encrypted JSON-RPC calls + rate limiting + attachment download
- ├── AssignmentScraper     → calls ListeTravailAFaire API function; builds AttachmentRef list
- ├── AttachmentDownloader  → idempotent download of G=1 attachments; respects rate limiting
- ├── TimetableScraper      → calls PageEmploiDuTemps API function
- ├── SnapshotStore         → read/write latest.json + archive/
- ├── DiffEngine            → field-level comparison via Jackson tree model
- ├── CompositeNotifier     → fan-out to NtfyNotifier + EmailNotifier
- └── TimetableViewRenderer → generates static HTML pages from timetable snapshot
+Main (runFetch / runViews / runDiff / runValidate)
+ ├── ConfigLoader              → loads config.yaml (SnakeYAML)
+ ├── ManualEntryLoader         → loads manual-entries.yaml (assignments + upcoming evals)
+ ├── SubjectEnricher           → resolves enrichedSubject from subject (+optional teacher)
+ ├── LockoutGuard              → halts job after N consecutive login failures
+ ├── SessionStore              → load/save session.json (persists AES keys + cookies)
+ ├── PronoteAuthenticator      → full 10-step login flow
+ ├── PronoteHttpClient         → AES-encrypted JSON-RPC calls + rate limiting + attachment download
+ ├── Scrapers                  → AssignmentScraper, TimetableScraper, GradeScraper,
+ │                               EvaluationScraper, SchoolLifeScraper
+ ├── AttachmentDownloader      → idempotent download of G=1 attachments; respects rate limiting
+ ├── SnapshotStore             → read/write latest.json + archive/, per data type
+ ├── DiffEngine                → field-level comparison via Jackson tree model
+ ├── TimetableDiffFilter       → suppresses past items + bulk normal additions in newly-discovered weeks
+ ├── DiffReporter              → writes diff-latest.json + diff-history.log every run
+ ├── CompositeNotifier         → fan-out to NtfyNotifier + EmailNotifier (per-channel failure non-fatal)
+ ├── View renderers            → TimetableViewRenderer, AssignmentViewRenderer,
+ │                               EvaluationViewRenderer, SchoolLifeViewRenderer,
+ │                               PortalIndexHtmlGenerator
+ └── GitPublisher              → optional: mirror view dirs into a GitHub Pages repo
 ```
 
 All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counter state).
@@ -76,6 +86,8 @@ All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counte
 |---|---|---|
 | `config` | `AppConfig` | POJO tree for config.yaml |
 | `config` | `ConfigLoader` | Load + validate YAML; fail fast |
+| `config` | `ManualEntryLoader` | Parse `manual-entries.yaml` into `Assignment` + synthetic `TimetableEntry(isEval=true)` lists. Stable IDs prefixed `manual:`; explicit `id:` field optional. |
+| `config` | `SubjectEnricher` | Resolve `enrichedSubject` from raw subject (+optional teacher); two-pass rule eval, strips teacher prefixes ("M.", "Mme") |
 | `safety` | `LockoutGuard` | Track login failures in `data/lockout.json` |
 | `safety` | `RateLimiter` | Sleep `minDelay + random(jitter)` before each request |
 | `auth` | `CryptoHelper` | AES-CBC, RSA-1024, MD5, SHA256, key derivation |
@@ -83,18 +95,27 @@ All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counte
 | `auth` | `PronoteAuthenticator` | Full login flow (see Authentication section below) |
 | `auth` | `SessionStore` | Serialize/deserialize session to `data/session.json` |
 | `client` | `PronoteHttpClient` | Encrypted POST: builds envelope, calls rate limiter, decrypts response; also exposes `download()` for rate-limited binary GETs |
-| `scraper` | `AssignmentScraper` | Fetch + map French JSON fields to `Assignment`; builds `AttachmentRef` list |
+| `client` | `ApiFunction` | Enum of known Pronote API function names (e.g. `PageEmploiDuTemps`) |
+| `scraper` | `AssignmentScraper` | `ListeTravailAFaire` → `Assignment`; builds `AttachmentRef` list |
 | `scraper` | `AttachmentDownloader` | Idempotent G=1 attachment download; resolves `localPath` from disk; respects rate limiter |
-| `scraper` | `TimetableScraper` | Fetch per-week; map to `TimetableEntry` |
-| `domain` | `Assignment`, `TimetableEntry` | Pure data, Jackson-serializable, implements `Identifiable` |
+| `scraper` | `TimetableScraper` | `PageEmploiDuTemps` per-week → `TimetableEntry`; reads `estEval`/`estDevoir`/`originesCategorie` from `cahierDeTextes.V` |
+| `scraper` | `GradeScraper`, `EvaluationScraper`, `SchoolLifeScraper` | Per-type scrapers, same pattern |
+| `domain` | `Assignment`, `TimetableEntry`, `Grade`, `CompetenceEvaluation`, `SchoolLifeEvent` | Pure data, Jackson-serializable, implements `Identifiable` |
 | `domain` | `AttachmentRef` | Attachment metadata: `stableId`, `fileName`, `uploadedFile`, `localPath`, `mimeType`; transient `downloadUrl` (never persisted) |
-| `persistence` | `SnapshotStore` | Write `latest.json`, archive old, purge expired |
+| `domain` | `CompetenceAcquisition` | Per-competence level result inside a `CompetenceEvaluation` (A+/A/C/E etc.) |
+| `persistence` | `SnapshotStore` | Write `latest.json`, archive old, purge expired; `loadLatest` / `loadPrevious` |
 | `persistence` | `DiffEngine` | Generic field-level diff via `jackson.valueToTree()`; registers `AttachmentRefDiffMixin` to exclude runtime fields from comparison |
+| `persistence` | `TimetableDiffFilter` | Post-diff suppression: drop past items, drop bulk normal additions in newly-discovered furthest week. `isEval=true` entries always kept (user needs lead time). |
+| `persistence` | `DiffReporter` | Writes `data/diff-latest.json` + appends to `data/diff-history.log` every run, regardless of notifications |
 | `notification` | `NtfyNotifier` | HTTP POST to ntfy topic |
 | `notification` | `EmailNotifier` | Jakarta Mail SMTP + STARTTLS |
 | `notification` | `CompositeNotifier` | Fan-out; per-channel failure is logged, not fatal |
-| `views` | `TimetableHtmlGenerator` | Builds one self-contained HTML5 day page from a `List<TimetableEntry>` |
-| `views` | `TimetableViewRenderer` | Computes target dates, calls generator per day, writes files + `index.html` |
+| `views` | `TimetableHtmlGenerator` / `TimetableViewRenderer` | Per-weekday HTML5 day page + `index.html` overview + `current.html` (today or next non-empty weekday) |
+| `views` | `AssignmentHtmlGenerator` / `AssignmentViewRenderer` | Single-page assignment list grouped by date, weekly separators, eval cards merged into matching subject group |
+| `views` | `EvaluationHtmlGenerator` / `EvaluationSummaryHtmlGenerator` / `EvaluationViewRenderer` | Bilan view (per-eval cards) + summary view (per-subject grouping with subject-average badge) |
+| `views` | `SchoolLifeHtmlGenerator` / `SchoolLifeViewRenderer` | Absences / delays / observations list |
+| `views` | `PortalIndexHtmlGenerator` | `data/views/index.html` — card grid linking to the per-type views |
+| `views` | `GitPublisher` | Optional: copy view dirs into a sibling git repo and push (GitHub Pages) |
 
 ---
 
@@ -242,36 +263,83 @@ data/snapshots/assignments/attachments/<sanitized-assignmentId>/<sanitizedFileNa
 
 ---
 
-## Timetable HTML Views
+## Static HTML Views
 
-After each successful timetable fetch, `Main.java` calls `TimetableViewRenderer.render(timetable)` (step 11), which is **unconditional** — it regenerates all pages on every run regardless of whether a diff was detected. This keeps views in sync with the latest snapshot.
+After each successful fetch, `Main.java` regenerates the view files **unconditionally** (steps 10–14) regardless of whether a diff was detected — keeping the rendered output in sync with the latest snapshot.
 
-### Config (`timetableView` block)
+### View types and config blocks
+
+| Block | Renderer | Output (default) | Notes |
+|---|---|---|---|
+| `timetableView` | `TimetableViewRenderer` | `./data/views/timetable/` | One `YYYY-MM-DD.html` per weekday + `index.html` + `current.html` (today if classes are still ongoing within 90 min of last lesson, else next non-empty weekday) |
+| `assignmentView` | `AssignmentViewRenderer` | `./data/views/assignments/` | Single page grouped by date with weekly separators; eval cards merge into matching subject group |
+| `evaluationView` | `EvaluationViewRenderer` | `./data/views/evaluations/` | Bilan view (`index.html`) + per-subject summary (`summary.html`) with subject-average badge |
+| `schoolLifeView` | `SchoolLifeViewRenderer` | `./data/views/school-life/` | Absences / delays / observations |
+| (portal) | `PortalIndexHtmlGenerator` | `./data/views/index.html` | Card grid linking to whatever per-type views are enabled |
+
+Common keys per block:
 
 | Key | Default | Description |
 |---|---|---|
-| `enabled` | `true` | Set to `false` to skip all view generation |
-| `outputDirectory` | `./data/views/timetable` | Where HTML files are written. Use `./docs/timetable` for GitHub Pages. |
-| `daysAhead` | `5` | Number of upcoming **weekdays** (Mon–Fri) to generate, starting from today |
+| `enabled` | `true` | Set to `false` to skip generation of that view |
+| `outputDirectory` | see above | Where HTML files are written |
+| `daysAhead` (timetable only) | `5` | Number of upcoming **weekdays** to generate, starting from today |
 
-### Output
+### Output conventions
 
-One file per weekday: `YYYY-MM-DD.html` + an `index.html` overview card grid. All files are self-contained (CSS embedded inline — no external resources).
+All files are self-contained (CSS embedded inline; minimal JS only for the eval-detail dialog). The timetable views are annotated with assignment counts and eval markers loaded from the assignments snapshot.
 
 ### CSS / styling
 
-All CSS lives in the `TimetableHtmlGenerator.CSS` static text-block constant. It is embedded verbatim into every generated file.
-- Light/dark mode: `prefers-color-scheme` media query with CSS custom properties — **no JavaScript**.
+CSS lives inside each generator class as a static text-block `CSS` constant, embedded verbatim into every generated file.
+- Light/dark mode: `prefers-color-scheme` media query with CSS custom properties — **no JS for theming**.
 - Responsive: `max-width: 480px` centred container; same layout works on mobile and desktop.
 - Subject accent colours: 12-colour palette; colour index = `abs(subject.hashCode()) % 12` — deterministic across runs and days.
 
 ### Modifying the views
 
-To change layout or styling, edit `TimetableHtmlGenerator.CSS` and/or the HTML-building methods in `TimetableHtmlGenerator`. The renderer (`TimetableViewRenderer`) only handles file I/O and date selection — it does not contain any HTML.
+To change layout or styling, edit the relevant generator's `CSS` constant or HTML-building methods. The `*ViewRenderer` classes only handle file I/O and date selection — they do not contain any HTML.
 
 ### GitHub Pages deployment
 
-Point `outputDirectory` to `docs/timetable` in `config.yaml`, commit the `docs/` folder, and enable GitHub Pages from the `docs/` root in the repository settings.
+Two options:
+1. Point each view's `outputDirectory` to a path under `docs/` and commit, then enable Pages from the `docs/` root in the repo settings.
+2. Set `viewPublish.enabled: true` to mirror the configured view dirs into a sibling git repo and push — see `GitPublisher`. The portal `index.html` is published alongside.
+
+---
+
+## Manual entries (`manual-entries.yaml`)
+
+Optional companion file for work and upcoming tests you know about but that teachers haven't published yet. Path configurable via `manualEntries.file` (default `./manual-entries.yaml`). Silently ignored when absent. See `manual-entries.yaml.example` for the full schema with the project's subject/teacher reference table.
+
+Two blocks:
+- `assignments:` → produces `Assignment` objects merged into the assignment snapshot.
+- `evaluations:` → produces **synthetic `TimetableEntry(isEval=true)`** objects merged into the **timetable** snapshot. (See the terminology section at the top of this file — these are upcoming events, not past `CompetenceEvaluation` results.)
+
+Key behaviours:
+- **All manual IDs are prefixed `manual:`**. `runViews` strips entries whose ID starts with `manual:` from the snapshot before re-injecting fresh from YAML — so edits take effect without a full fetch. `ManualEntryLoaderTest` pins this invariant.
+- **Stable IDs**: an optional `id:` field on either block produces `manual:<id>` directly; otherwise the fallback scheme is `manual:<subject>@<date>@<description-or-name>`. Use `id:` whenever you anticipate editing the description/name — without it, fixing a typo creates a "removed + new" notification pair.
+- **Manual evals get their times resolved against the timetable** (`resolveManualEvalTimes` in `Main`): subject + teacher match (most specific), then subject-only fallback, then 08:00–09:00 placeholder.
+- **Manual assignments with `teacher:` set skip the timetable-based teacher lookup** in `reEnrichAssignmentsWithTeacher`, so the user's explicit choice always wins.
+
+To verify a YAML edit without doing a full run, use `make validate` (`--mode validate`). It parses, enriches, prints what would be merged, and warns when a subject string doesn't appear in the latest timetable snapshot (the most common typo).
+
+---
+
+## Notifications — what gets surfaced and how
+
+| Source | Title token | Body marker | Notes |
+|---|---|---|---|
+| Cancelled timetable entry (`status=CANCELLED`, modified or added) | `✗ Subject reason · date` | `✗ ` prefix | Bumps priority to HIGH |
+| Removed timetable entry | counted in `📅 N modif. EDT` | `- ` prefix | Bumps priority to HIGH |
+| **Added upcoming eval** (`isEval=true`, added) | **`📝 Subject éval · date`** | **`📝 ` prefix + lesson label** | Always surfaced even when the furthest week is newly discovered (see `TimetableDiffFilter.isNoteworthyTimetableEntry`) |
+| Other timetable add/modify | `📅 N modif. EDT` | `+ ` or `~ ` prefix | Excludes cancelled and eval entries (counted separately) |
+| New grade | `📊 Subject: x/y` | `+ ` prefix | |
+| New assignment | `📚 Subject · date` | `+ ` prefix | |
+| New school-life event | `🏫 Type · date` | `+ ` prefix | Bumps priority to HIGH |
+| New past competence eval result | `📋 Subject éval.` | `+ ` prefix | Distinct from upcoming evals — different domain type |
+
+Cancelled, removed-timetable, and school-life additions promote the notification to `HIGH` priority. The title is hard-capped at 72 chars and joins at most the first three change categories with ` · `.
 
 ---
 
@@ -289,28 +357,83 @@ Point `outputDirectory` to `docs/timetable` in `config.yaml`, commit the `docs/`
 
 ---
 
+## Potential Future Improvements
+
+Deferred work, ordered roughly by usefulness. These are things the codebase is already shaped to accept — not speculative redesigns.
+
+### 1. Mark scraped (Pronote) assignments as `done`
+
+The strikethrough/badge UI in `AssignmentHtmlGenerator` and the day-card "N devoirs" filter in `TimetableViewRenderer` already react to `Assignment.isDone()`. Today only `manual:` entries can set it (via the YAML's `done: true`); Pronote-fetched assignments cannot.
+
+**Sketch**: introduce an `overrides.yaml` (or extend `manual-entries.yaml` with an `overrides:` block) keyed by Pronote assignment ID:
+```yaml
+overrides:
+  - assignmentId: "12345#abcdef"
+    done: true
+    hidden: false
+    note: "fait en avance"
+```
+Apply overrides after `AssignmentScraper` returns, before snapshot + diff. The override list itself is snapshot-independent and shouldn't affect diff churn (apply post-diff so an override flip doesn't generate a "modified" notification).
+
+### 3. Surface `memo` on upcoming-eval cards in the assignment view
+
+`TimetableEntry.memo` is populated by `TimetableScraper` but only the `lessonLabel` reaches the eval banner/cards in `AssignmentHtmlGenerator`. The teacher's free-text memo is usually the substantive part ("apporter la calculatrice", "réviser chap. 4–6"). Trivial: include `memo` (truncated) in `renderEvalBanner` and `renderDateGroup` when present.
+
+### 4. "Nouveau" tag on assignments newly assigned in the last 2 days
+
+`Assignment.assignedDate` is collected but never rendered. Adding a small tag to assignments whose `assignedDate >= today.minusDays(2)` makes the page useful even on runs where nothing was *added* (catches the case where the user missed a few cron firings). Lives in `AssignmentHtmlGenerator.renderAssignmentCard` — needs one extra field on `Assignment` (or just compute at render time) and a CSS rule.
+
+### 5. Cross-link the two "evaluation" worlds
+
+From a timetable day-view eval badge / assignment-view eval card, link to the corresponding `CompetenceEvaluation` once it appears in the `evaluations/` snapshot. Match on same date + same subject + similar `name`/`lessonLabel`. Bidirectional: bilan-view cards can also link back to the timetable date page. Unifies the two domains that the CLAUDE.md terminology section keeps conceptually separate.
+
+### 6. Weekly summary view
+
+`AssignmentHtmlGenerator` recently gained weekly separators. Natural next surface: a `weekly.html` per upcoming week showing totals (devoirs count, eval count, cancellations), per-subject breakdown, all evals — the Sunday-evening overview. Lives in a new `WeeklySummaryHtmlGenerator` + renderer; consumes the existing assignment + timetable snapshots.
+
+### 7. Trimester selector on the subject-average panel
+
+`EvaluationSummaryHtmlGenerator` currently shows a subject-average badge that aggregates across all periods. Add a pure-CSS `:target`-based or `<details>`-driven T1/T2/T3 selector that filters the computed average to one period — no JS, no extra dependencies. The `CompetenceEvaluation.periodName` data is already available.
+
+### General docs hygiene
+
+The subject/teacher reference table baked into `manual-entries.yaml.example` is the user's personal cheat sheet and will go stale as teachers change. Worth treating it as live documentation — re-verify each school year. Same for the example evaluation `periodName` values.
+
+---
+
 ## File Layout Reference
 
 ```
 src/main/java/com/pronote/
-├── Main.java
-├── config/       AppConfig, ConfigLoader
+├── Main.java                       ← four run modes: fetch / views / diff / validate
+├── config/       AppConfig, ConfigLoader, ManualEntryLoader, SubjectEnricher
 ├── safety/       LockoutGuard, RateLimiter
 ├── auth/         CryptoHelper, PronoteSession, PronoteAuthenticator, SessionStore
 ├── client/       PronoteHttpClient, ApiFunction
-├── scraper/      AssignmentScraper, TimetableScraper, AttachmentDownloader
-├── domain/       Assignment, TimetableEntry, EntryStatus, AttachmentRef
-├── persistence/  SnapshotStore, DiffEngine, DiffResult, FieldChange, Identifiable
+├── scraper/      AssignmentScraper, AttachmentDownloader, TimetableScraper,
+│                 GradeScraper, EvaluationScraper, SchoolLifeScraper
+├── domain/       Assignment, TimetableEntry, EntryStatus, AttachmentRef,
+│                 Grade, CompetenceEvaluation, CompetenceAcquisition, SchoolLifeEvent
+├── persistence/  SnapshotStore, DiffEngine, DiffResult, FieldChange,
+│                 TimetableDiffFilter, DiffReporter, Identifiable
 ├── notification/ NotificationService, NotificationPayload,
 │                 NtfyNotifier, EmailNotifier, CompositeNotifier
-└── views/        TimetableHtmlGenerator, TimetableViewRenderer
+└── views/        TimetableHtmlGenerator, TimetableViewRenderer,
+                  AssignmentHtmlGenerator, AssignmentViewRenderer,
+                  EvaluationHtmlGenerator, EvaluationSummaryHtmlGenerator,
+                  EvaluationViewRenderer,
+                  SchoolLifeHtmlGenerator, SchoolLifeViewRenderer,
+                  PortalIndexHtmlGenerator,
+                  GitPublisher, GitPublisherException
 ```
 
 Runtime data directory (default: `./data/`):
 ```
 data/
-├── session.json          ← AES keys + cookies (permissions: 600)
-├── lockout.json          ← consecutive failure counter
+├── session.json                ← AES keys + cookies (permissions: 600)
+├── lockout.json                ← consecutive failure counter
+├── diff-latest.json            ← structured diff from the most recent run
+├── diff-history.log            ← append-only one-line-per-run audit trail
 ├── snapshots/
 │   ├── assignments/latest.json
 │   ├── assignments/archive/*.json
@@ -318,10 +441,22 @@ data/
 │   │   └── <sanitized-assignmentId>/
 │   │       └── <sanitizedFileName>   ← downloaded G=1 files; idempotent across runs
 │   ├── timetable/latest.json
-│   └── timetable/archive/*.json
+│   ├── timetable/archive/*.json
+│   ├── grades/latest.json
+│   ├── grades/archive/*.json
+│   ├── evaluations/latest.json
+│   ├── evaluations/archive/*.json
+│   ├── school-life/latest.json
+│   └── school-life/archive/*.json
 ├── views/
-│   └── timetable/        ← default timetableView.outputDirectory
-│       ├── index.html    ← day-card overview, regenerated every run
-│       └── YYYY-MM-DD.html  ← one self-contained page per upcoming weekday
+│   ├── index.html              ← portal: cards linking to each enabled view type
+│   ├── timetable/
+│   │   ├── index.html          ← week overview (day cards)
+│   │   ├── current.html        ← today (if ongoing) or next non-empty weekday
+│   │   └── YYYY-MM-DD.html     ← one self-contained page per upcoming weekday
+│   ├── assignments/index.html
+│   ├── evaluations/index.html  ← bilan (all evals)
+│   ├── evaluations/summary.html
+│   └── school-life/index.html
 └── logs/app.log
 ```

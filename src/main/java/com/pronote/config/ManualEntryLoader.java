@@ -102,7 +102,7 @@ public class ManualEntryLoader {
                 : dueDate;
 
         Assignment a = new Assignment();
-        a.setId("manual:" + e.getSubject() + "@" + dueDate + "@" + e.getDescription());
+        a.setId(buildManualId(e.getId(), e.getSubject(), dueDate, e.getDescription()));
         a.setSubject(e.getSubject());
         a.setTeacher(e.getTeacher());
         a.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher()));
@@ -129,7 +129,7 @@ public class ManualEntryLoader {
         LocalDate date = parseDate(e.getDate(), "date");
 
         TimetableEntry entry = new TimetableEntry();
-        entry.setId("manual:" + e.getSubject() + "@" + date + "@" + e.getName());
+        entry.setId(buildManualId(e.getId(), e.getSubject(), date, e.getName()));
         entry.setSubject(e.getSubject());
         entry.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher()));
         entry.setTeacher(e.getTeacher());
@@ -140,6 +140,26 @@ public class ManualEntryLoader {
         entry.setMemo(e.getDescription());
         entry.setStatus(EntryStatus.NORMAL);
         return entry;
+    }
+
+    /**
+     * Builds the {@code manual:}-prefixed stable identifier for a manual entry.
+     *
+     * <p>When the user provides an explicit {@code id:} field, it is used verbatim — fixing a
+     * typo in the description/name no longer churns the ID, so the entry is not re-emitted as
+     * a "removed + new" pair in the next notification. When omitted, falls back to the legacy
+     * {@code subject@date@text} scheme so existing snapshots keep matching.
+     *
+     * @param explicitId   the optional user-supplied {@code id:} field; may be null or blank
+     * @param subject      the entry subject (used in the fallback scheme)
+     * @param date         the entry's anchor date (due date or eval date; used in fallback)
+     * @param text         the entry's description (assignments) or name (evaluations); used in fallback
+     */
+    private static String buildManualId(String explicitId, String subject, LocalDate date, String text) {
+        if (explicitId != null && !explicitId.isBlank()) {
+            return "manual:" + explicitId.trim();
+        }
+        return "manual:" + subject + "@" + date + "@" + text;
     }
 
     private static void requireField(String value, String field, String entryType) {
@@ -192,12 +212,18 @@ public class ManualEntryLoader {
     }
 
     public static class AssignmentEntry {
+        /** Optional stable identifier. When present, used as-is for the {@code manual:<id>}
+         *  snapshot key — survives typo fixes to {@code description} without diff churn. */
+        private String id;
         private String subject;
         private String description;
         private String dueDate;
         private String assignedDate;  // optional — defaults to dueDate if absent
         private boolean done;         // optional — default false
         private String teacher;       // optional — enables teacher-specific enrichment rules
+
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
 
         public String getSubject() { return subject; }
         public void setSubject(String subject) { this.subject = subject; }
@@ -219,12 +245,18 @@ public class ManualEntryLoader {
     }
 
     public static class EvaluationEntry {
+        /** Optional stable identifier. When present, used as-is for the {@code manual:<id>}
+         *  snapshot key — survives typo fixes to {@code name} without diff churn. */
+        private String id;
         private String subject;
         private String name;           // required — the evaluation title; shown as lessonLabel in timetable
         private String date;           // required — ISO date YYYY-MM-DD
         private String teacher;        // optional — enables teacher-specific enrichment rules
         private String description;    // optional — shown as memo in timetable day view
         private String periodName;     // optional — parsed but not used (no timetable equivalent)
+
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
 
         public String getSubject() { return subject; }
         public void setSubject(String subject) { this.subject = subject; }

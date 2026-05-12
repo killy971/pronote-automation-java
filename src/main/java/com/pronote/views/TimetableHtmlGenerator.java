@@ -298,7 +298,7 @@ public class TimetableHtmlGenerator {
 
         // Memo
         if (e.getMemo() != null && !e.getMemo().isBlank()) {
-            card.append("        <div class=\"lesson__memo\">").append(esc(e.getMemo())).append("</div>\n");
+            card.append("        <div class=\"lesson__memo\">").append(HtmlText.escapeAndLinkify(e.getMemo())).append("</div>\n");
         }
 
         // Status / test badges (+ absorbed manual eval label when present)
@@ -370,7 +370,7 @@ public class TimetableHtmlGenerator {
               .append("\">\n");
             String desc = a.getDescription();
             if (desc != null && !desc.isBlank()) {
-                sb.append("                <p class=\"assign-popup__desc\">").append(esc(desc)).append("</p>\n");
+                sb.append("                <p class=\"assign-popup__desc\">").append(HtmlText.escapeAndLinkify(desc)).append("</p>\n");
             } else {
                 sb.append("                <p class=\"assign-popup__desc assign-popup__desc--empty\">(aucune description)</p>\n");
             }
@@ -537,6 +537,8 @@ public class TimetableHtmlGenerator {
           --bdg-test-bg:   #dbeafe; --bdg-test-fg:   #1e40af;
           --bdg-eval-bg:   #fef3c7; --bdg-eval-fg:   #92400e;
           --bdg-exempt-bg: #f3e8ff; --bdg-exempt-fg: #6b21a8;
+
+          --link-fg: #1e40af;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -553,6 +555,8 @@ public class TimetableHtmlGenerator {
             --bdg-test-bg:   #0c1f40; --bdg-test-fg:   #93c5fd;
             --bdg-eval-bg:   #3d2800; --bdg-eval-fg:   #fcd34d;
             --bdg-exempt-bg: #2d0a5e; --bdg-exempt-fg: #d8b4fe;
+
+            --link-fg: #93c5fd;
           }
         }
 
@@ -690,6 +694,11 @@ public class TimetableHtmlGenerator {
           color: var(--text-2);
           font-style: italic;
           margin-top: 0.125rem;
+        }
+
+        .lesson__memo a {
+          color: var(--link-fg);
+          word-break: break-all;
         }
 
         .lesson__footer {
@@ -924,6 +933,11 @@ public class TimetableHtmlGenerator {
           line-height: 1.5;
           white-space: pre-wrap;
           word-break: break-word;
+        }
+
+        .assign-popup__desc a {
+          color: var(--link-fg);
+          word-break: break-all;
         }
 
         .assign-popup__item--done .assign-popup__desc {

@@ -67,6 +67,15 @@ assignments:
     dueDate: "2026-04-20"
     done: true
 
+  # ── Stable id — survives typo fixes without churning the diff ────────────
+  # Without id:, fixing a typo in description changes the snapshot ID, which
+  # the next run reports as "removed + new" (extra notification pair). Setting
+  # id: pins the identity to a short user-chosen key.
+  - id: math-fractions-2604
+    subject: "MATHEMATIQUES"
+    description: "Révision fractions équivalentes"
+    dueDate: "2026-04-26"
+
   # ── Histoire — teacher disambiguates enrichment (→ "Histoire") ───────────
   - subject: "HISTOIRE-GEOGRAPHIE"
     description: "Apprendre le cours sur la naissance du monothéisme"
@@ -117,7 +126,8 @@ evaluations:
     date: "2026-04-25"
 
   # ── With all optional fields ──────────────────────────────────────────────
-  - subject: "MATHEMATIQUES"
+  - id: ds3-maths-0605                # optional — stable key (survives name edits)
+    subject: "MATHEMATIQUES"
     name: "DS 3 - fractions et pourcentages"
     date: "2026-05-06"
     teacher: "Mme AUBRY S."      # optional — enables teacher-specific enrichment rules

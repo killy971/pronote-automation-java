@@ -268,7 +268,7 @@ public class AssignmentHtmlGenerator {
         String desc = a.getDescription();
         if (desc != null && !desc.isBlank()) {
             card.append("            <p class=\"assignment__description\">")
-                .append(esc(desc))
+                .append(HtmlText.escapeAndLinkify(desc))
                 .append("</p>\n");
         }
 
@@ -549,6 +549,13 @@ public class AssignmentHtmlGenerator {
           text-decoration: line-through;
           color: var(--text-3);
         }
+
+        /* Inline links inside teacher-supplied description text */
+        .assignment__description a {
+          color: var(--attach-fg);
+          word-break: break-all;
+        }
+        .assignment__description a:hover { text-decoration: none; }
 
         /* ----- Badge ----- */
         .badge {

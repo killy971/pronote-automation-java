@@ -9,7 +9,7 @@ CONFIG  := config.yaml
 JVM_OPTS := -Djava.net.preferIPv4Stack=true
 ARGS ?=
 
-.PHONY: build test run run-debug views diff notify-preview clean help
+.PHONY: build test run run-debug views diff notify-preview validate clean help
 
 ## build: compile and package the fat JAR
 build:
@@ -59,6 +59,14 @@ notify-preview: $(JAR)
 		exit 1; \
 	fi
 	$(JAVA) -Xmx128m $(JVM_OPTS) -jar $(JAR) --config $(CONFIG) --mode diff --dry-run
+
+## validate: parse manual-entries.yaml and report what would be merged (offline, no network)
+validate: $(JAR)
+	@if [ ! -f "$(CONFIG)" ]; then \
+		echo "ERROR: $(CONFIG) not found."; \
+		exit 1; \
+	fi
+	$(JAVA) -Xmx128m $(JVM_OPTS) -jar $(JAR) --config $(CONFIG) --mode validate
 
 ## clean: remove build artifacts
 clean:

@@ -120,14 +120,20 @@ public class TimetableDiffFilter {
      * <p>Classifies as noteworthy when:
      * <ul>
      *   <li>status is anything other than {@link EntryStatus#NORMAL} (cancelled, modified,
-     *       exempted), or</li>
+     *       exempted),</li>
      *   <li>a non-blank {@code statusLabel} is present — Pronote populates this for
      *       teacher-absent events, exceptional sessions, etc. (e.g. "Prof. absent",
-     *       "Exceptionnel", "Cours modifié").</li>
+     *       "Exceptionnel", "Cours modifié"), or</li>
+     *   <li>{@code isEval} is true — upcoming competence evaluations are always
+     *       noteworthy regardless of whether the week is newly discovered, because the
+     *       user needs lead time to prepare.</li>
      * </ul>
      */
     public static boolean isNoteworthyTimetableEntry(TimetableEntry item) {
         if (item.getStatus() != null && item.getStatus() != EntryStatus.NORMAL) {
+            return true;
+        }
+        if (item.isEval()) {
             return true;
         }
         return item.getStatusLabel() != null && !item.getStatusLabel().isBlank();
