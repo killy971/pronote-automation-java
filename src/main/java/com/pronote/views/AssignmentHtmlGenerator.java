@@ -5,9 +5,11 @@ import com.pronote.domain.AttachmentRef;
 import com.pronote.domain.TimetableEntry;
 
 import java.nio.file.Path;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.IsoFields;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -48,6 +50,8 @@ public class AssignmentHtmlGenerator {
         DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DATETIME_FMT =
         DateTimeFormatter.ofPattern("d MMMM yyyy '\u00e0' HH'h'mm", Locale.FRENCH);
+    private static final DateTimeFormatter WEEK_RANGE_FMT =
+        DateTimeFormatter.ofPattern("d MMMM", Locale.FRENCH);
 
     // -------------------------------------------------------------------------
     // Public API
@@ -160,12 +164,28 @@ public class AssignmentHtmlGenerator {
         evalsByDate.keySet().forEach(d -> merged.computeIfAbsent(d, k -> new ArrayList<>()));
 
         StringBuilder sb = new StringBuilder();
+        String lastWeekKey = null;
         for (LocalDate date : merged.keySet()) {
+            String weekKey = date.get(IsoFields.WEEK_BASED_YEAR) + "-W"
+                    + String.format("%02d", date.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR));
+            if (lastWeekKey != null && !weekKey.equals(lastWeekKey)) {
+                sb.append(renderWeekSeparator(date));
+            }
+            lastWeekKey = weekKey;
             List<Assignment> dayAssignments = byDate.getOrDefault(date, List.of());
             List<EvalEntry> dayEvals = evalsByDate.getOrDefault(date, List.of());
             sb.append(renderDateGroup(date, dayAssignments, dayEvals, outputDir));
         }
         return sb.toString();
+    }
+
+    private String renderWeekSeparator(LocalDate anyDateInWeek) {
+        LocalDate monday = anyDateInWeek.with(DayOfWeek.MONDAY);
+        LocalDate friday = anyDateInWeek.with(DayOfWeek.FRIDAY);
+        String label = "Semaine du " + monday.format(WEEK_RANGE_FMT) + " au " + friday.format(WEEK_RANGE_FMT);
+        return "      <div class=\"week-separator\" role=\"separator\" aria-label=\"" + esc(label) + "\">\n"
+             + "        <span class=\"week-separator__label\">" + esc(label) + "</span>\n"
+             + "      </div>\n";
     }
 
     private String renderDateGroup(LocalDate date, List<Assignment> dayAssignments,
@@ -452,6 +472,31 @@ public class AssignmentHtmlGenerator {
           padding-bottom: 0.5rem;
           border-bottom: 2px solid var(--border);
           margin-bottom: 0.875rem;
+        }
+
+        /* ----- Week separator ----- */
+        .week-separator {
+          display: flex;
+          align-items: center;
+          gap: 0.625rem;
+          margin: 0.25rem 0 1.5rem;
+        }
+
+        .week-separator::before,
+        .week-separator::after {
+          content: '';
+          flex: 1;
+          height: 1px;
+          background: var(--border);
+        }
+
+        .week-separator__label {
+          font-size: 0.625rem;
+          font-weight: 700;
+          letter-spacing: 0.09em;
+          text-transform: uppercase;
+          color: var(--text-3);
+          white-space: nowrap;
         }
 
         /* ----- Subject group ----- */
