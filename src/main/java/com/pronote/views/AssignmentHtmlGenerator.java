@@ -37,6 +37,14 @@ import java.util.TreeMap;
  */
 public class AssignmentHtmlGenerator {
 
+    private final int newBadgeDays;
+
+    public AssignmentHtmlGenerator() { this(2); }
+
+    public AssignmentHtmlGenerator(int newBadgeDays) {
+        this.newBadgeDays = newBadgeDays;
+    }
+
     /** Accent palette — same as timetable views; colour index = {@code abs(subject.hashCode()) % 12}. */
     private static final String[] ACCENT_COLORS = {
         "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
@@ -256,6 +264,11 @@ public class AssignmentHtmlGenerator {
 
     private String renderAssignmentCard(Assignment a, Path outputDir) {
         boolean done = a.isDone();
+        LocalDate today = LocalDate.now();
+        boolean isNew = !done
+                && newBadgeDays > 0
+                && a.getAssignedDate() != null
+                && !a.getAssignedDate().isBefore(today.minusDays(newBadgeDays));
         StringBuilder card = new StringBuilder();
         card.append("          <div class=\"assignment-card")
             .append(done ? " assignment-card--done" : "")
@@ -263,6 +276,8 @@ public class AssignmentHtmlGenerator {
 
         if (done) {
             card.append("            <span class=\"badge badge--done\">Fait</span>\n");
+        } else if (isNew) {
+            card.append("            <span class=\"badge badge--new\">Nouveau</span>\n");
         }
 
         String desc = a.getDescription();
@@ -387,6 +402,7 @@ public class AssignmentHtmlGenerator {
           --border:  #e2e8f0;
 
           --bdg-done-bg:     #dcfce7; --bdg-done-fg:    #15803d;
+          --bdg-new-bg:      #dbeafe; --bdg-new-fg:     #1e40af;
           --bdg-eval-bg:     #fef3c7; --bdg-eval-fg:    #92400e;
           --eval-banner-bg:  #fffbeb; --eval-banner-border: #fcd34d;
           --eval-card-bg:    #fffdf5;
@@ -404,6 +420,7 @@ public class AssignmentHtmlGenerator {
             --border:  #1e2030;
 
             --bdg-done-bg:    #052e16; --bdg-done-fg:   #4ade80;
+            --bdg-new-bg:     #1e3a5f; --bdg-new-fg:    #93c5fd;
             --bdg-eval-bg:    #3d2800; --bdg-eval-fg:   #fcd34d;
             --eval-banner-bg: #1c1500; --eval-banner-border: #854d0e;
             --eval-card-bg:   #1a1200;
@@ -571,6 +588,7 @@ public class AssignmentHtmlGenerator {
         }
 
         .badge--done { background: var(--bdg-done-bg); color: var(--bdg-done-fg); }
+        .badge--new  { background: var(--bdg-new-bg);  color: var(--bdg-new-fg);  }
         .badge--eval { background: var(--bdg-eval-bg); color: var(--bdg-eval-fg); }
 
         /* ----- Eval banner (compact summary above assignments) ----- */
@@ -670,6 +688,7 @@ public class AssignmentHtmlGenerator {
             --border:  #cccccc;
 
             --bdg-done-bg:    #e8f5e9; --bdg-done-fg:   #1b5e20;
+            --bdg-new-bg:     #e3f2fd; --bdg-new-fg:    #0d47a1;
             --bdg-eval-bg:    #fef9c3; --bdg-eval-fg:   #78350f;
             --eval-banner-bg: #fffef0; --eval-banner-border: #d97706;
             --eval-card-bg:   #fffef5;

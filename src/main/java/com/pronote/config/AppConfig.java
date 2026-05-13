@@ -318,12 +318,19 @@ public class AppConfig {
         /** Output directory for the generated HTML file. Relative paths are resolved from the JVM
          *  working directory. */
         private String outputDirectory = "./data/views/assignments";
+        /** Number of days after the assignedDate during which a "Nouveau" badge is shown on the
+         *  assignment card. An assignment assigned today or up to N-1 days ago is considered new.
+         *  Set to 0 to disable the badge entirely. */
+        private int newBadgeDays = 2;
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
 
         public String getOutputDirectory() { return outputDirectory; }
         public void setOutputDirectory(String outputDirectory) { this.outputDirectory = outputDirectory; }
+
+        public int getNewBadgeDays() { return newBadgeDays; }
+        public void setNewBadgeDays(int newBadgeDays) { this.newBadgeDays = newBadgeDays; }
     }
 
     /**

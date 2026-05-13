@@ -25,10 +25,11 @@ public class AssignmentViewRenderer {
     private static final Logger log = LoggerFactory.getLogger(AssignmentViewRenderer.class);
 
     private final AppConfig.AssignmentViewConfig viewConfig;
-    private final AssignmentHtmlGenerator generator = new AssignmentHtmlGenerator();
+    private final AssignmentHtmlGenerator generator;
 
     public AssignmentViewRenderer(AppConfig.AssignmentViewConfig viewConfig) {
         this.viewConfig = viewConfig;
+        this.generator = new AssignmentHtmlGenerator(viewConfig.getNewBadgeDays());
     }
 
     /**

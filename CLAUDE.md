@@ -309,6 +309,7 @@ Common keys per block:
 | `enabled` | `true` | Set to `false` to skip generation of that view |
 | `outputDirectory` | see above | Where HTML files are written |
 | `daysAhead` (timetable only) | `5` | Number of upcoming **weekdays** to generate, starting from today |
+| `newBadgeDays` (assignment only) | `2` | Show a "Nouveau" badge on assignment cards whose `assignedDate` is within the last N days. Set to `0` to disable. |
 
 ### Output conventions
 

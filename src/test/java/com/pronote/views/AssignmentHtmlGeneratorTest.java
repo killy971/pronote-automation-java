@@ -99,6 +99,52 @@ class AssignmentHtmlGeneratorTest {
     }
 
     @Test
+    void generate_recentAssignment_showsNouveauBadge(@TempDir Path outDir) {
+        Assignment fresh = assignment("a-new", "SYN_MATHS",
+                LocalDate.now().plusDays(3), "devoir assigné aujourd'hui");
+        fresh.setAssignedDate(LocalDate.now());
+
+        String html = new AssignmentHtmlGenerator(2).generate(List.of(fresh), List.of(), outDir);
+
+        assertTrue(html.contains("badge--new\">Nouveau"), "assignment assigned today should have badge--new element");
+    }
+
+    @Test
+    void generate_oldAssignment_doesNotShowNouveauBadge(@TempDir Path outDir) {
+        Assignment old = assignment("a-old", "SYN_MATHS",
+                LocalDate.now().plusDays(3), "devoir assigné il y a longtemps");
+        old.setAssignedDate(LocalDate.now().minusDays(5));
+
+        String html = new AssignmentHtmlGenerator(2).generate(List.of(old), List.of(), outDir);
+
+        assertFalse(html.contains("badge--new\">Nouveau"), "assignment older than threshold should not have badge--new element");
+    }
+
+    @Test
+    void generate_newBadgeDaysZero_badgeNeverShown(@TempDir Path outDir) {
+        Assignment fresh = assignment("a-zero", "SYN_MATHS",
+                LocalDate.now().plusDays(3), "devoir assigné aujourd'hui");
+        fresh.setAssignedDate(LocalDate.now());
+
+        String html = new AssignmentHtmlGenerator(0).generate(List.of(fresh), List.of(), outDir);
+
+        assertFalse(html.contains("badge--new\">Nouveau"), "badge element should not appear when newBadgeDays=0");
+    }
+
+    @Test
+    void generate_doneAssignment_doesNotShowNouveauBadge(@TempDir Path outDir) {
+        Assignment done = assignment("a-done", "SYN_MATHS",
+                LocalDate.now().plusDays(3), "devoir fait mais récent");
+        done.setAssignedDate(LocalDate.now());
+        done.setDone(true);
+
+        String html = new AssignmentHtmlGenerator(2).generate(List.of(done), List.of(), outDir);
+
+        assertFalse(html.contains("badge--new\">Nouveau"), "done assignment should not show badge--new element");
+        assertTrue(html.contains("badge--done"), "done assignment should still show badge--done element");
+    }
+
+    @Test
     void generate_upcomingEvalFromTimetable_isSurfaced(@TempDir Path outDir) {
         // Empty assignments — only an upcoming eval in the timetable
         TimetableEntry eval = new TimetableEntry();

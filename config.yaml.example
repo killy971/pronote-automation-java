@@ -80,6 +80,10 @@ assignmentView:
   enabled: true
   # Output directory for the generated index.html.
   outputDirectory: "./data/views/assignments"
+  # Show a "Nouveau" badge on assignment cards added within the last N days (based on assignedDate).
+  # Useful when you haven't checked the page for a day or two: newly added assignments are
+  # visually distinct from ones you've already seen. Set to 0 to disable the badge.
+  newBadgeDays: 2
 
 viewPublish:
   # Publish generated view files to a local GitHub Pages repository clone.

@@ -26,9 +26,9 @@ Apply overrides after `AssignmentScraper` returns, before snapshot + diff. The o
 
 ---
 
-### 3. "Nouveau" tag on assignments newly assigned in the last 2 days
+### ~~3. "Nouveau" tag on assignments newly assigned in the last 2 days~~ ✓ Done
 
-`Assignment.assignedDate` is collected but never rendered. Adding a small tag to assignments whose `assignedDate >= today.minusDays(2)` makes the page useful even on runs where nothing was *added* (catches the case where the user missed a few cron firings). Lives in `AssignmentHtmlGenerator.renderAssignmentCard` — needs one extra field on `Assignment` (or just compute at render time) and a CSS rule.
+Implemented: `AssignmentHtmlGenerator` emits a `badge--new` ("Nouveau") span when `assignedDate >= today.minusDays(newBadgeDays)` and `!done`. Threshold is configurable via `assignmentView.newBadgeDays` in config.yaml (default: 2, set to 0 to disable).
 
 ---
 
