@@ -70,8 +70,8 @@ class ManualEntryLoaderTest {
         assertEquals("MATHEMATIQUES", a.getSubject());
         assertEquals("DS fractions", a.getDescription());
         assertEquals(LocalDate.of(2026, 5, 15), a.getDueDate());
-        assertEquals(LocalDate.of(2026, 5, 15), a.getAssignedDate(),
-                "assignedDate defaults to dueDate when omitted");
+        assertNull(a.getAssignedDate(),
+                "assignedDate must be null when omitted — prevents spurious 'Nouveau' badge on all manual entries");
         assertFalse(a.isDone(), "done defaults to false");
         assertNull(a.getTeacher());
     }

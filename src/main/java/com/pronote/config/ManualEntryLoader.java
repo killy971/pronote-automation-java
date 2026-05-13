@@ -99,7 +99,7 @@ public class ManualEntryLoader {
         LocalDate dueDate = parseDate(e.getDueDate(), "dueDate");
         LocalDate assignedDate = (e.getAssignedDate() != null && !e.getAssignedDate().isBlank())
                 ? parseDate(e.getAssignedDate(), "assignedDate")
-                : dueDate;
+                : null;
 
         Assignment a = new Assignment();
         a.setId(buildManualId(e.getId(), e.getSubject(), dueDate, e.getDescription()));
@@ -218,7 +218,7 @@ public class ManualEntryLoader {
         private String subject;
         private String description;
         private String dueDate;
-        private String assignedDate;  // optional — defaults to dueDate if absent
+        private String assignedDate;  // optional — null when absent (suppresses "Nouveau" badge)
         private boolean done;         // optional — default false
         private String teacher;       // optional — enables teacher-specific enrichment rules
 
