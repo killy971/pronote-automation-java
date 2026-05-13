@@ -4,13 +4,13 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.pronote.auth.PronoteAuthenticator;
 import com.pronote.auth.PronoteSession;
 import com.pronote.auth.SessionStore;
+import com.pronote.cli.CliOptions;
 import com.pronote.client.PronoteHttpClient;
 import com.pronote.config.AppConfig;
 import com.pronote.config.ConfigLoader;
 import com.pronote.config.ManualEntryLoader;
 import com.pronote.config.SubjectEnricher;
 import com.pronote.domain.Assignment;
-import com.pronote.domain.EntryStatus;
 import com.pronote.domain.CompetenceEvaluation;
 import com.pronote.domain.Grade;
 import com.pronote.domain.SchoolLifeEvent;
@@ -19,13 +19,12 @@ import com.pronote.notification.*;
 import com.pronote.persistence.DiffEngine;
 import com.pronote.persistence.DiffReporter;
 import com.pronote.persistence.DiffResult;
-import com.pronote.persistence.FieldChange;
 import com.pronote.persistence.SnapshotStore;
 import com.pronote.persistence.TimetableDiffFilter;
 import com.pronote.safety.LockoutGuard;
 import com.pronote.safety.RateLimiter;
-import com.pronote.domain.AttachmentRef;
 import com.pronote.scraper.AssignmentScraper;
+import com.pronote.scraper.AssignmentTeacherResolver;
 import com.pronote.scraper.AttachmentDownloader;
 import com.pronote.scraper.EvaluationScraper;
 import com.pronote.scraper.GradeScraper;
@@ -90,21 +89,23 @@ public class Main {
 
     private static void run(String[] args) {
         // ---- 1. Load configuration ----------------------------------------
-        Path configPath = resolveConfigPath(args);
-        AppConfig config = ConfigLoader.load(configPath);
-        resolveFeatureOverride(args).ifPresent(enabled -> applyFeatureOverride(config.getFeatures(), enabled));
+        CliOptions opts = CliOptions.parse(args);
+        AppConfig config = ConfigLoader.load(opts.configPath());
+        opts.featureOverride().ifPresent(enabled -> {
+            CliOptions.applyFeatureOverride(config.getFeatures(), enabled);
+            log.info("Feature override applied via --features flag: {}", enabled);
+        });
         Path dataDir = Path.of(config.getData().getDirectory());
-        boolean dryRun = isDryRun(args);
+        boolean dryRun = opts.dryRun();
         if (dryRun) log.info("--dry-run active: notifications will be previewed in the log, not sent.");
 
-        String mode = resolveMode(args);
-        switch (mode) {
+        switch (opts.mode()) {
             case "fetch"    -> runFetch(config, dataDir, dryRun);
             case "views"    -> runViews(config, dataDir);
             case "diff"     -> runDiff(config, dataDir, dryRun);
             case "validate" -> runValidate(config, dataDir);
             default -> throw new IllegalArgumentException(
-                    "Unknown --mode '" + mode + "'. Valid modes: fetch, views, diff, validate");
+                    "Unknown --mode '" + opts.mode() + "'. Valid modes: fetch, views, diff, validate");
         }
     }
 
@@ -165,7 +166,8 @@ public class Main {
         // subject-only enrichment rules. Here we cross-reference each assignment's subject and
         // assignedDate against the timetable to resolve the teacher, then re-apply enrichment
         // so that teacher-specific rules (e.g. the Histoire/Géographie split) also fire.
-        reEnrichAssignmentsWithTeacher(assignments, timetable, subjectEnricher);
+        AssignmentTeacherResolver teacherResolver = new AssignmentTeacherResolver(subjectEnricher);
+        teacherResolver.reEnrichAssignmentsWithTeacher(assignments, timetable);
 
         GradeScraper gradeScraper = new GradeScraper(subjectEnricher);
         List<Grade> grades = List.of();
@@ -218,7 +220,7 @@ public class Main {
             assignments = merged;
         }
         if (features.isTimetable() && !manualEntries.getUpcomingEvals().isEmpty()) {
-            resolveManualEvalTimes(manualEntries.getUpcomingEvals(), timetable);
+            AssignmentTeacherResolver.resolveManualEvalTimes(manualEntries.getUpcomingEvals(), timetable);
             List<TimetableEntry> merged = new ArrayList<>(timetable);
             merged.addAll(manualEntries.getUpcomingEvals());
             timetable = merged;
@@ -290,7 +292,7 @@ public class Main {
             if (dryRun || notificationsEnabled) {
                 log.info("Changes detected — {}...", dryRun ? "previewing notification (dry-run)" : "sending notifications");
                 NotificationService notifier = buildNotifier(config, dryRun);
-                NotificationPayload payload = buildPayload(assignmentDiff, timetableDiff,
+                NotificationPayload payload = NotificationPayloadBuilder.build(assignmentDiff, timetableDiff,
                         gradeDiff, evaluationDiff, schoolLifeDiff);
                 try {
                     notifier.send(payload);
@@ -420,7 +422,7 @@ public class Main {
             // Same de-duplication: strip snapshot-persisted manual evals, re-inject from YAML.
             timetableData.removeIf(e -> e.getId() != null && e.getId().startsWith("manual:"));
             if (!manualEntries.getUpcomingEvals().isEmpty()) {
-                resolveManualEvalTimes(manualEntries.getUpcomingEvals(), timetableData);
+                AssignmentTeacherResolver.resolveManualEvalTimes(manualEntries.getUpcomingEvals(), timetableData);
                 timetableData.addAll(manualEntries.getUpcomingEvals());
             }
         }
@@ -428,7 +430,7 @@ public class Main {
         // Re-apply teacher-based enrichment once, before any view is rendered, so that
         // both the timetable and assignment views see consistent enrichedSubject values.
         // This also re-enriches snapshots saved before the enrichment config was last updated.
-        reEnrichAssignmentsWithTeacher(assignmentsData, timetableData, enricher);
+        new AssignmentTeacherResolver(enricher).reEnrichAssignmentsWithTeacher(assignmentsData, timetableData);
 
         if (timetableViewEnabled) {
             if (timetableSnap.isEmpty()) {
@@ -597,7 +599,7 @@ public class Main {
             if (dryRun || notificationsEnabled) {
                 log.info("Changes detected — {}...", dryRun ? "previewing notification (dry-run)" : "sending notifications");
                 NotificationService notifier = buildNotifier(config, dryRun);
-                NotificationPayload payload = buildPayload(assignmentDiff, timetableDiff,
+                NotificationPayload payload = NotificationPayloadBuilder.build(assignmentDiff, timetableDiff,
                         gradeDiff, evaluationDiff, schoolLifeDiff);
                 try {
                     notifier.send(payload);
@@ -775,7 +777,7 @@ public class Main {
      */
     private static void sendErrorAlert(NotificationService notifier, String phase, String detail) {
         if (notifier == null) return;
-        String body = detail != null ? truncate(detail, 200) : "(aucun détail)";
+        String body = detail != null ? NotificationFormatter.truncate(detail, 200) : "(aucun détail)";
         NotificationPayload payload = new NotificationPayload(
                 "⚠ Pronote : échec — " + phase,
                 body,
@@ -810,577 +812,10 @@ public class Main {
         return new CompositeNotifier(services);
     }
 
-    private static boolean isDryRun(String[] args) {
-        for (String arg : args) {
-            if ("--dry-run".equals(arg)) return true;
-        }
-        return false;
-    }
-
     private static <T extends com.pronote.persistence.Identifiable> DiffResult<T> emptyDiff() {
         return new DiffResult<>(List.of(), List.of(), Map.of());
     }
 
-    private static NotificationPayload buildPayload(DiffResult<Assignment> assignmentDiff,
-                                                    DiffResult<TimetableEntry> timetableDiff,
-                                                    DiffResult<Grade> gradeDiff,
-                                                    DiffResult<CompetenceEvaluation> evaluationDiff,
-                                                    DiffResult<SchoolLifeEvent> schoolLifeDiff) {
-        // Newly-cancelled entries: modified entries whose status flipped to CANCELLED,
-        // plus any added entries already CANCELLED (rare but possible).
-        List<TimetableEntry> cancelledEntries = new ArrayList<>();
-        for (Map.Entry<TimetableEntry, List<FieldChange>> e : timetableDiff.modified().entrySet()) {
-            if (e.getKey().getStatus() == EntryStatus.CANCELLED
-                    && e.getValue().stream().anyMatch(fc -> "status".equals(fc.fieldName()))) {
-                cancelledEntries.add(e.getKey());
-            }
-        }
-        for (TimetableEntry e : timetableDiff.added()) {
-            if (e.getStatus() == EntryStatus.CANCELLED) cancelledEntries.add(e);
-        }
-
-        String title = buildNtfyTitle(assignmentDiff, timetableDiff, gradeDiff, evaluationDiff,
-                schoolLifeDiff, cancelledEntries);
-
-        int sectionsWithChanges = (assignmentDiff.isEmpty() ? 0 : 1)
-                + (timetableDiff.isEmpty() ? 0 : 1)
-                + (gradeDiff.isEmpty() ? 0 : 1)
-                + (evaluationDiff.isEmpty() ? 0 : 1)
-                + (schoolLifeDiff.isEmpty() ? 0 : 1);
-        boolean multiSection = sectionsWithChanges > 1;
-
-        StringBuilder body = new StringBuilder();
-        if (!assignmentDiff.isEmpty()) {
-            if (multiSection) body.append("📚 Devoirs\n");
-            appendAssignmentLines(body, assignmentDiff);
-            if (multiSection) body.append("\n");
-        }
-        if (!timetableDiff.isEmpty()) {
-            if (multiSection) body.append("📅 Emploi du temps\n");
-            appendTimetableLines(body, timetableDiff);
-            if (multiSection) body.append("\n");
-        }
-        if (!gradeDiff.isEmpty()) {
-            if (multiSection) body.append("📊 Notes\n");
-            appendGradeLines(body, gradeDiff);
-            if (multiSection) body.append("\n");
-        }
-        if (!evaluationDiff.isEmpty()) {
-            if (multiSection) body.append("📋 Évaluations\n");
-            appendEvaluationLines(body, evaluationDiff);
-            if (multiSection) body.append("\n");
-        }
-        if (!schoolLifeDiff.isEmpty()) {
-            if (multiSection) body.append("🏫 Vie scolaire\n");
-            appendSchoolLifeLines(body, schoolLifeDiff);
-        }
-
-        NotificationPayload.Priority priority =
-                (!cancelledEntries.isEmpty() || !timetableDiff.removed().isEmpty()
-                        || !schoolLifeDiff.added().isEmpty())
-                ? NotificationPayload.Priority.HIGH
-                : NotificationPayload.Priority.NORMAL;
-
-        return new NotificationPayload(title, body.toString().trim(), priority,
-                List.of("school", "pronote"));
-    }
-
-    private static String buildNtfyTitle(DiffResult<Assignment> asgn,
-                                          DiffResult<TimetableEntry> tt,
-                                          DiffResult<Grade> grades,
-                                          DiffResult<CompetenceEvaluation> evals,
-                                          DiffResult<SchoolLifeEvent> schoolLife,
-                                          List<TimetableEntry> cancelledEntries) {
-        List<String> tokens = new ArrayList<>();
-
-        // 1. Cancellations (highest urgency)
-        if (!cancelledEntries.isEmpty()) {
-            if (cancelledEntries.size() == 1) {
-                TimetableEntry e = cancelledEntries.get(0);
-                String reason = e.getStatusLabel() != null && !e.getStatusLabel().isBlank()
-                        ? e.getStatusLabel() : "annulé";
-                tokens.add("✗ " + subject(e) + " " + reason + " · " + fmtDateTime(e.getStartTime()));
-            } else {
-                tokens.add("✗ " + cancelledEntries.size() + " cours annulés");
-            }
-        }
-
-        // 2. New grades
-        if (!grades.added().isEmpty()) {
-            if (grades.added().size() == 1) {
-                Grade g = grades.added().get(0);
-                tokens.add("📊 " + subject(g) + ": " + g.getValue() + "/" + fmtOutOf(g.getOutOf()));
-            } else {
-                tokens.add("📊 " + grades.added().size() + " notes");
-            }
-        }
-
-        // 3. New assignments
-        if (!asgn.added().isEmpty()) {
-            if (asgn.added().size() == 1) {
-                Assignment a = asgn.added().get(0);
-                tokens.add("📚 " + subject(a) + " · " + fmtDate(a.getDueDate()));
-            } else {
-                tokens.add("📚 " + asgn.added().size() + " devoirs");
-            }
-        }
-
-        // 4a. Newly announced upcoming competence evaluations (timetable isEval=true)
-        // These come from either the Pronote timetable or the manual-entries.yaml evaluations:
-        // block (which is converted to synthetic TimetableEntry(isEval=true) by ManualEntryLoader).
-        // Surfaced separately from generic timetable mods so they get a distinct glance line.
-        List<TimetableEntry> addedEvalEntries = tt.added().stream()
-                .filter(e -> e.isEval() && e.getStatus() != EntryStatus.CANCELLED)
-                .toList();
-        if (!addedEvalEntries.isEmpty()) {
-            if (addedEvalEntries.size() == 1) {
-                TimetableEntry e = addedEvalEntries.get(0);
-                tokens.add("📝 " + subject(e) + " éval · " + fmtDate(e.getStartTime().toLocalDate()));
-            } else {
-                tokens.add("📝 " + addedEvalEntries.size() + " évals à venir");
-            }
-        }
-
-        // 4b. Other timetable changes (non-cancelled non-eval additions, removals, other modifications)
-        long otherTtChanges = tt.added().stream()
-                .filter(e -> e.getStatus() != EntryStatus.CANCELLED && !e.isEval()).count()
-                + tt.removed().size()
-                + tt.modified().entrySet().stream()
-                    .filter(e -> !cancelledEntries.contains(e.getKey())).count();
-        if (otherTtChanges > 0) {
-            tokens.add(cancelledEntries.isEmpty()
-                    ? "📅 " + otherTtChanges + " modif. EDT"
-                    : "📅 +" + otherTtChanges + " modif.");
-        }
-
-        // 5. New school life events
-        if (!schoolLife.added().isEmpty()) {
-            if (schoolLife.added().size() == 1) {
-                SchoolLifeEvent e = schoolLife.added().get(0);
-                tokens.add("🏫 " + fmtEventType(e.getType()) + " · " + fmtDate(e.getDate()));
-            } else {
-                tokens.add("🏫 " + schoolLife.added().size() + " événements");
-            }
-        }
-
-        // 6. New evaluations
-        if (!evals.added().isEmpty()) {
-            if (evals.added().size() == 1) {
-                tokens.add("📋 " + subject(evals.added().get(0)) + " éval.");
-            } else {
-                tokens.add("📋 " + evals.added().size() + " évals.");
-            }
-        }
-
-        // 7. Catch-all: modifications/removals only
-        if (tokens.isEmpty()) {
-            int mods = asgn.modified().size() + tt.modified().size() + grades.modified().size()
-                    + evals.modified().size() + schoolLife.modified().size()
-                    + asgn.removed().size() + grades.removed().size()
-                    + evals.removed().size() + schoolLife.removed().size();
-            tokens.add("Pronote: " + mods + " modification(s)");
-        }
-
-        String joined = String.join(" · ", tokens.subList(0, Math.min(3, tokens.size())));
-        return joined.length() <= 72 ? joined : joined.substring(0, 70) + "…";
-    }
-
-    // ---- per-category body renderers ----------------------------------------
-
-    private static void appendAssignmentLines(StringBuilder b, DiffResult<Assignment> diff) {
-        for (Assignment a : diff.added()) {
-            b.append("+ ").append(subject(a)).append(" · ").append(fmtDate(a.getDueDate()));
-            if (a.getDescription() != null && !a.getDescription().isBlank()) {
-                b.append(" — ").append(truncate(a.getDescription(), 80));
-            }
-            List<AttachmentRef> att = a.getAttachments();
-            if (att != null && !att.isEmpty()) {
-                long files = att.stream().filter(AttachmentRef::isUploadedFile).count();
-                long links = att.stream().filter(r -> !r.isUploadedFile()).count();
-                if (files == 1) {
-                    String fname = att.stream().filter(AttachmentRef::isUploadedFile)
-                            .map(AttachmentRef::getFileName).findFirst().orElse("fichier");
-                    b.append(" [📎 ").append(truncate(fname, 20)).append("]");
-                } else if (files > 1) {
-                    b.append(" [📎×").append(files).append("]");
-                }
-                if (links == 1) {
-                    String fname = att.stream().filter(r -> !r.isUploadedFile())
-                            .map(AttachmentRef::getFileName).findFirst().orElse("lien");
-                    b.append(" [🔗 ").append(truncate(fname, 20)).append("]");
-                } else if (links > 1) {
-                    b.append(" [🔗×").append(links).append("]");
-                }
-            }
-            b.append("\n");
-        }
-        for (Assignment a : diff.removed()) {
-            b.append("- ").append(subject(a)).append(" · ").append(fmtDate(a.getDueDate()))
-                    .append(" [supprimé]\n");
-        }
-        for (Map.Entry<Assignment, List<FieldChange>> entry : diff.modified().entrySet()) {
-            Assignment a = entry.getKey();
-            b.append("~ ").append(subject(a)).append(" · ").append(fmtDate(a.getDueDate()));
-            List<FieldChange> changes = entry.getValue().stream()
-                    .filter(fc -> !"enrichedSubject".equals(fc.fieldName())).toList();
-            if (changes.size() == 1) {
-                b.append(" — ").append(fmtAssignmentChange(changes.get(0)));
-            } else if (!changes.isEmpty()) {
-                b.append(" [").append(changes.size()).append(" champs modifiés]");
-            }
-            b.append("\n");
-        }
-    }
-
-    private static void appendTimetableLines(StringBuilder b, DiffResult<TimetableEntry> diff) {
-        for (TimetableEntry e : diff.added()) {
-            // Upcoming competence eval (isEval=true) gets a distinct marker so the user spots
-            // it among regular timetable changes. The eval's own label (e.g. "DS énergie")
-            // replaces the room field since rooms are uninformative for evaluations.
-            String prefix;
-            if (e.getStatus() == EntryStatus.CANCELLED) prefix = "✗ ";
-            else if (e.isEval())                        prefix = "📝 ";
-            else                                        prefix = "+ ";
-            b.append(prefix).append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()));
-            if (e.isEval() && e.getLessonLabel() != null && !e.getLessonLabel().isBlank()) {
-                b.append(" — ").append(truncate(e.getLessonLabel(), 60));
-            } else if (e.getRoom() != null && !e.getRoom().isBlank()) {
-                b.append(" (").append(e.getRoom()).append(")");
-            }
-            b.append("\n");
-        }
-        for (TimetableEntry e : diff.removed()) {
-            b.append("- ").append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()))
-                    .append(" [supprimé]\n");
-        }
-        for (Map.Entry<TimetableEntry, List<FieldChange>> entry : diff.modified().entrySet()) {
-            TimetableEntry e = entry.getKey();
-            String prefix = e.getStatus() == EntryStatus.CANCELLED ? "✗ " : "~ ";
-            b.append(prefix).append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()));
-            String detail = fmtTimetableChanges(e, entry.getValue());
-            if (!detail.isBlank()) b.append(" · ").append(detail);
-            b.append("\n");
-        }
-    }
-
-    private static void appendGradeLines(StringBuilder b, DiffResult<Grade> diff) {
-        for (Grade g : diff.added()) {
-            b.append("+ ").append(subject(g)).append(": ").append(g.getValue())
-                    .append("/").append(fmtOutOf(g.getOutOf()));
-            if (g.getComment() != null && !g.getComment().isBlank()) {
-                b.append(" — \"").append(truncate(g.getComment(), 40)).append("\"");
-            }
-            if (g.getCoefficient() != 1.0) {
-                b.append(" (coef.").append(fmtCoef(g.getCoefficient())).append(")");
-            }
-            b.append("\n");
-        }
-        for (Grade g : diff.removed()) {
-            b.append("- ").append(subject(g)).append(" · ").append(fmtDate(g.getDate()))
-                    .append(" [supprimé]\n");
-        }
-        for (Map.Entry<Grade, List<FieldChange>> entry : diff.modified().entrySet()) {
-            Grade g = entry.getKey();
-            b.append("~ ").append(subject(g)).append(" · ").append(fmtDate(g.getDate()));
-            FieldChange valChange = entry.getValue().stream()
-                    .filter(fc -> "value".equals(fc.fieldName())).findFirst().orElse(null);
-            if (valChange != null) {
-                b.append(": ").append(valChange.oldValue()).append("→")
-                        .append(valChange.newValue()).append("/").append(fmtOutOf(g.getOutOf()));
-            } else {
-                b.append(" [modifié]");
-            }
-            b.append("\n");
-        }
-    }
-
-    private static void appendEvaluationLines(StringBuilder b, DiffResult<CompetenceEvaluation> diff) {
-        for (CompetenceEvaluation e : diff.added()) {
-            b.append("+ ").append(subject(e));
-            if (e.getName() != null && !e.getName().isBlank()) {
-                b.append(" \"").append(truncate(e.getName(), 40)).append("\"");
-            }
-            if (e.getDate() != null) b.append(" — ").append(fmtDate(e.getDate()));
-            if (e.getPeriodName() != null && !e.getPeriodName().isBlank()) {
-                b.append(" [").append(e.getPeriodName()).append("]");
-            }
-            b.append("\n");
-        }
-        for (CompetenceEvaluation e : diff.removed()) {
-            b.append("- ").append(subject(e));
-            if (e.getName() != null) b.append(" \"").append(truncate(e.getName(), 30)).append("\"");
-            b.append(" [supprimé]\n");
-        }
-        for (Map.Entry<CompetenceEvaluation, List<FieldChange>> entry : diff.modified().entrySet()) {
-            CompetenceEvaluation e = entry.getKey();
-            b.append("~ ").append(subject(e));
-            if (e.getName() != null) b.append(" \"").append(truncate(e.getName(), 30)).append("\"");
-            b.append(" [modifié]\n");
-        }
-    }
-
-    private static void appendSchoolLifeLines(StringBuilder b, DiffResult<SchoolLifeEvent> diff) {
-        for (SchoolLifeEvent e : diff.added()) {
-            b.append("+ ").append(fmtEventType(e.getType())).append(" ").append(fmtDate(e.getDate()));
-            if (e.getTime() != null && !e.getTime().isBlank()) {
-                b.append(" ").append(e.getTime().replace(":", "h"));
-            }
-            if (e.getMinutes() > 0) b.append(" (").append(e.getMinutes()).append(" min)");
-            String label = e.getNature() != null && !e.getNature().isBlank() ? e.getNature()
-                    : (e.getLabel() != null && !e.getLabel().isBlank() ? e.getLabel() : null);
-            if (label != null) b.append(" — ").append(label);
-            if (e.getReasons() != null && !e.getReasons().isBlank()) {
-                b.append(" [").append(truncate(e.getReasons(), 40)).append("]");
-            }
-            if (e.isJustified()) b.append(" ✓");
-            b.append("\n");
-        }
-        for (SchoolLifeEvent e : diff.removed()) {
-            b.append("- ").append(fmtEventType(e.getType())).append(" ").append(fmtDate(e.getDate()))
-                    .append(" [supprimé]\n");
-        }
-        for (Map.Entry<SchoolLifeEvent, List<FieldChange>> entry : diff.modified().entrySet()) {
-            SchoolLifeEvent e = entry.getKey();
-            b.append("~ ").append(fmtEventType(e.getType())).append(" ").append(fmtDate(e.getDate()))
-                    .append(" [modifié]\n");
-        }
-    }
-
-    // ---- field-change formatters --------------------------------------------
-
-    private static String fmtAssignmentChange(FieldChange fc) {
-        return switch (fc.fieldName()) {
-            case "description" -> "description modifiée";
-            case "dueDate"     -> "date: " + fc.oldValue() + "→" + fc.newValue();
-            case "done"        -> Boolean.parseBoolean(String.valueOf(fc.newValue()))
-                                  ? "marqué fait" : "marqué non fait";
-            default            -> fc.fieldName() + " modifié";
-        };
-    }
-
-    private static String fmtTimetableChanges(TimetableEntry entry, List<FieldChange> changes) {
-        // Prefer the human-readable status label from Pronote when available
-        if (entry.getStatusLabel() != null && !entry.getStatusLabel().isBlank()) {
-            return entry.getStatusLabel();
-        }
-        List<String> parts = new ArrayList<>();
-        for (FieldChange fc : changes) {
-            switch (fc.fieldName()) {
-                case "room"                  -> parts.add("salle " + fc.oldValue() + "→" + fc.newValue());
-                case "teacher"               -> parts.add("prof. modifié");
-                case "startTime", "endTime"  -> parts.add("horaire modifié");
-                // status change reflected by the ✗/~ prefix; statusLabel already handled above
-                case "status", "statusLabel", "enrichedSubject", "subject", "isTest", "memo" -> { }
-                default                      -> parts.add(fc.fieldName() + " modifié");
-            }
-        }
-        return String.join(", ", parts.subList(0, Math.min(2, parts.size())));
-    }
-
-    // ---- date / time formatters ---------------------------------------------
-
-    private static final String[] DAYS_FR = {"lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."};
-
-    private static String fmtDate(LocalDate d) {
-        if (d == null) return "?";
-        return DAYS_FR[d.getDayOfWeek().getValue() - 1]
-                + " " + d.getDayOfMonth() + "/" + String.format("%02d", d.getMonthValue());
-    }
-
-    private static String fmtDateTime(LocalDateTime dt) {
-        if (dt == null) return "?";
-        return fmtDate(dt.toLocalDate())
-                + " " + String.format("%02dh%02d", dt.getHour(), dt.getMinute());
-    }
-
-    private static String fmtOutOf(double outOf) {
-        return outOf == (long) outOf ? String.valueOf((long) outOf) : String.valueOf(outOf);
-    }
-
-    private static String fmtCoef(double coef) {
-        return coef == (long) coef ? String.valueOf((long) coef) : String.valueOf(coef);
-    }
-
-    private static String fmtEventType(SchoolLifeEvent.EventType type) {
-        if (type == null) return "Événement";
-        return switch (type) {
-            case ABSENCE     -> "Absence";
-            case DELAY       -> "Retard";
-            case INFIRMARY   -> "Infirmerie";
-            case PUNISHMENT  -> "Punition";
-            case OBSERVATION -> "Observation";
-            case OTHER       -> "Événement";
-        };
-    }
-
-    // ---- subject helpers (enrichedSubject with fallback) --------------------
-
-    private static String subject(Assignment a) {
-        String s = a.getEnrichedSubject();
-        return s != null && !s.isBlank() ? s : (a.getSubject() != null ? a.getSubject() : "?");
-    }
-
-    private static String subject(TimetableEntry e) {
-        String s = e.getEnrichedSubject();
-        return s != null && !s.isBlank() ? s : (e.getSubject() != null ? e.getSubject() : "?");
-    }
-
-    private static String subject(Grade g) {
-        String s = g.getEnrichedSubject();
-        return s != null && !s.isBlank() ? s : (g.getSubject() != null ? g.getSubject() : "?");
-    }
-
-    private static String subject(CompetenceEvaluation ev) {
-        String s = ev.getEnrichedSubject();
-        return s != null && !s.isBlank() ? s : (ev.getSubject() != null ? ev.getSubject() : "?");
-    }
-
-    // -------------------------------------------------------------------------
-
-    private static Path resolveConfigPath(String[] args) {
-        for (int i = 0; i < args.length - 1; i++) {
-            if ("--config".equals(args[i])) return Path.of(args[i + 1]);
-        }
-        return Path.of("config.yaml");
-    }
-
-    private static String resolveMode(String[] args) {
-        for (int i = 0; i < args.length - 1; i++) {
-            if ("--mode".equals(args[i])) return args[i + 1];
-        }
-        return "fetch";
-    }
-
-    private static final Set<String> KNOWN_FEATURES =
-            Set.of("assignments", "timetable", "grades", "evaluations", "schoolLife");
-
-    private static Optional<Set<String>> resolveFeatureOverride(String[] args) {
-        for (int i = 0; i < args.length - 1; i++) {
-            if ("--features".equals(args[i])) {
-                return Optional.of(new HashSet<>(List.of(args[i + 1].split(","))));
-            }
-        }
-        return Optional.empty();
-    }
-
-    private static void applyFeatureOverride(AppConfig.FeaturesConfig features, Set<String> enabled) {
-        Set<String> unknown = new HashSet<>(enabled);
-        unknown.removeAll(KNOWN_FEATURES);
-        if (!unknown.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Unknown --features values: " + unknown + ". Valid: " + KNOWN_FEATURES);
-        }
-        features.setAssignments(enabled.contains("assignments"));
-        features.setTimetable(enabled.contains("timetable"));
-        features.setGrades(enabled.contains("grades"));
-        features.setEvaluations(enabled.contains("evaluations"));
-        features.setSchoolLife(enabled.contains("schoolLife"));
-        log.info("Feature override applied via --features flag: {}", enabled);
-    }
-
-    /**
-     * Re-enriches assignments using timetable teacher information.
-     *
-     * <p>The Pronote homework API does not expose the teacher for each assignment.
-     * This method resolves the teacher by matching the assignment's {@code subject}
-     * against timetable entries. The {@code dueDate} is tried first as it is most likely
-     * to be a class day for that teacher. If the due date has multiple distinct teachers
-     * for the same subject (ambiguous), the {@code assignedDate} is used as a tiebreaker —
-     * it identifies the teacher who actually gave the assignment.
-     * When a match is found, {@link SubjectEnricher#enrich(String, String)} is called
-     * again with the resolved teacher so that teacher-specific rules (e.g. splitting
-     * "HISTOIRE-GEOGRAPHIE" by teacher) apply to assignments as well.
-     *
-     * <p>If no unambiguous timetable entry matches on either date, the enrichment set by
-     * the scraper is kept unchanged.
-     */
-    /**
-     * Resolves start/end times for synthetic manual eval entries by finding the matching
-     * timetable slot on the same date and subject. Teacher is used for disambiguation when set.
-     * Falls back to the 08:00–09:00 placeholder when no match is found (e.g. date outside the
-     * timetable window).
-     */
-    private static void resolveManualEvalTimes(List<TimetableEntry> manualEvals,
-                                                List<TimetableEntry> timetable) {
-        for (TimetableEntry eval : manualEvals) {
-            LocalDate date = eval.getStartTime().toLocalDate();
-
-            // Subject + teacher match (most specific)
-            Optional<TimetableEntry> match = timetable.stream()
-                    .filter(e -> e.getStartTime() != null
-                            && date.equals(e.getStartTime().toLocalDate())
-                            && eval.getSubject().equals(e.getSubject())
-                            && (eval.getTeacher() == null || eval.getTeacher().equals(e.getTeacher())))
-                    .findFirst();
-
-            // Subject-only fallback when teacher was set but produced no match
-            if (match.isEmpty() && eval.getTeacher() != null) {
-                match = timetable.stream()
-                        .filter(e -> e.getStartTime() != null
-                                && date.equals(e.getStartTime().toLocalDate())
-                                && eval.getSubject().equals(e.getSubject()))
-                        .findFirst();
-            }
-
-            if (match.isPresent() && match.get().getEndTime() != null) {
-                eval.setStartTime(match.get().getStartTime());
-                eval.setEndTime(match.get().getEndTime());
-                log.debug("Manual eval '{}' on {}: resolved time {}–{} from timetable",
-                        eval.getLessonLabel(), date,
-                        match.get().getStartTime().toLocalTime(),
-                        match.get().getEndTime().toLocalTime());
-            } else {
-                log.info("Manual eval '{}' on {}: no timetable slot found — using default 08:00–09:00",
-                        eval.getLessonLabel(), date);
-            }
-        }
-    }
-
-    private static void reEnrichAssignmentsWithTeacher(
-            List<Assignment> assignments,
-            List<TimetableEntry> timetable,
-            SubjectEnricher subjectEnricher) {
-        if (assignments.isEmpty() || timetable.isEmpty()) return;
-        for (Assignment a : assignments) {
-            if (a.getSubject() == null) continue;
-            // Manual entries may carry an explicit teacher — use it directly and skip timetable
-            // lookup so the user's intent is not overwritten by a different timetable slot.
-            // dueDate is tried first: it is most likely to be a class day for the subject.
-            // When dueDate is ambiguous (multiple distinct teachers that day), assignedDate
-            // is used as a tiebreaker — it pinpoints the teacher who gave the assignment.
-            String teacher = a.getTeacher();
-            if (teacher == null) {
-                teacher = findTeacherInTimetable(a.getSubject(), a.getDueDate(), timetable);
-            }
-            if (teacher == null) {
-                teacher = findTeacherInTimetable(a.getSubject(), a.getAssignedDate(), timetable);
-            }
-            if (teacher != null) {
-                String enriched = subjectEnricher.enrich(a.getSubject(), teacher);
-                log.debug("Assignment '{}' (due {}) resolved teacher '{}' → enrichedSubject='{}'",
-                        a.getSubject(), a.getDueDate(), teacher, enriched);
-                a.setEnrichedSubject(enriched);
-            }
-        }
-    }
-
-    private static String findTeacherInTimetable(String subject, LocalDate date,
-            List<TimetableEntry> timetable) {
-        if (date == null) return null;
-        List<String> teachers = timetable.stream()
-                .filter(e -> e.getStartTime() != null
-                        && date.equals(e.getStartTime().toLocalDate())
-                        && subject.equals(e.getSubject())
-                        && e.getTeacher() != null && !e.getTeacher().isBlank())
-                .map(TimetableEntry::getTeacher)
-                .distinct()
-                .toList();
-        return teachers.size() == 1 ? teachers.get(0) : null;
-    }
-
-    private static String truncate(String s, int maxLen) {
-        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "…";
-    }
 
     // -------------------------------------------------------------------------
     // Portal index helpers

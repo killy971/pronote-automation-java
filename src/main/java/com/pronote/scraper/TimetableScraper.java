@@ -120,7 +120,11 @@ public class TimetableScraper {
         return parseTimetable(response, group);
     }
 
-    private List<TimetableEntry> parseTimetable(JsonNode response, String group) {
+    /**
+     * Package-private for unit tests — feeds synthetic Pronote JSON through the parser
+     * without requiring a live HTTP client.
+     */
+    List<TimetableEntry> parseTimetable(JsonNode response, String group) {
         // Response structure: { "ListeCours": [ { "V": {...} }, ... ] }
         // Pronote may wrap the array in a {"V": [...]} container (_T=24).
         JsonNode list = response.get("ListeCours");

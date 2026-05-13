@@ -108,7 +108,11 @@ public class GradeScraper {
         return all;
     }
 
-    private List<Grade> parseGrades(JsonNode response, String periodName) {
+    /**
+     * Package-private for unit tests — feeds synthetic Pronote JSON through the parser
+     * without requiring a live HTTP client.
+     */
+    List<Grade> parseGrades(JsonNode response, String periodName) {
         // Response: { "listeDevoirs": { "V": [ { grade object }, ... ] } }
         JsonNode wrapper = response.get("listeDevoirs");
         JsonNode list = null;

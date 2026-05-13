@@ -186,7 +186,7 @@ String subject = node.get("Matiere").get("V").get("L").asText();
 3. Create a domain class implementing `Identifiable` in `com.pronote.domain`.
 4. Create `XxxScraper.java` in `com.pronote.scraper`, following the `AssignmentScraper` pattern.
 5. Add snapshot load/save + diff wiring in `Main.java`.
-6. Add the new type to `buildPayload()` in `Main.java`.
+6. Add the new type to `NotificationPayloadBuilder.build(...)` in `notification/NotificationPayloadBuilder.java`.
 
 Check the pronotepy implementation of your specific function to determine:
 - Whether `ressource` must be added to params (required by some APIs, not others).
@@ -199,12 +199,14 @@ Check the pronotepy implementation of your specific function to determine:
 ```
 src/main/java/com/pronote/
 ├── Main.java               orchestration only — no business logic
-├── config/                 AppConfig, ConfigLoader, SubjectEnricher
+├── cli/                    CliOptions
+├── config/                 AppConfig, ConfigLoader, ManualEntryLoader, SubjectEnricher
 ├── safety/                 LockoutGuard, RateLimiter
 ├── auth/                   CryptoHelper, PronoteSession, PronoteAuthenticator, SessionStore
 ├── client/                 PronoteHttpClient, ApiFunction
-├── scraper/                *Scraper, AttachmentDownloader
+├── scraper/                *Scraper, AssignmentTeacherResolver, AttachmentDownloader
 ├── domain/                 pure data + Identifiable
 ├── persistence/            SnapshotStore, DiffEngine, DiffResult, FieldChange, DiffReporter, TimetableDiffFilter
-└── notification/           NotificationService, NotificationPayload, *Notifier
+└── notification/           NotificationFormatter, NotificationPayloadBuilder,
+                            NotificationService, NotificationPayload, *Notifier
 ```

@@ -9,16 +9,20 @@ CONFIG  := config.yaml
 JVM_OPTS := -Djava.net.preferIPv4Stack=true
 ARGS ?=
 
-.PHONY: build test run run-debug views diff notify-preview validate clean help
+.PHONY: build test test-force run run-debug views diff notify-preview validate clean help
 
 ## build: compile and package the fat JAR
 build:
 	./gradlew shadowJar
 	@echo "JAR built: $(JAR)"
 
-## test: run unit tests
+## test: run unit tests (skips if nothing changed)
 test:
 	./gradlew test
+
+## test-force: run all unit tests unconditionally
+test-force:
+	./gradlew cleanTest test
 
 ## run: run the application with ./config.yaml
 run: $(JAR)

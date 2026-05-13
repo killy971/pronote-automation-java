@@ -104,7 +104,11 @@ public class AssignmentScraper {
         return weekStart.get(WeekFields.of(Locale.FRANCE).weekOfWeekBasedYear());
     }
 
-    private List<Assignment> parseAssignments(JsonNode response, PronoteSession session) {
+    /**
+     * Package-private for unit tests — feeds synthetic Pronote JSON through the parser
+     * without requiring a live HTTP client.
+     */
+    List<Assignment> parseAssignments(JsonNode response, PronoteSession session) {
         // Response structure: { "ListeTravauxAFaire": { "V": [ { "V": { ...assignment fields... } }, ... ] } }
         JsonNode wrapper = response.get("ListeTravauxAFaire");
         JsonNode list = null;
