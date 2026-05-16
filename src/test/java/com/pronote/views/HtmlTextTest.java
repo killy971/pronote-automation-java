@@ -112,4 +112,20 @@ class HtmlTextTest {
         String out = HtmlText.escapeAndLinkify("javascript:alert(1) ftp://a mailto:x@y");
         assertEquals("javascript:alert(1) ftp://a mailto:x@y", out);
     }
+
+    @Test
+    void linkify_htmlEntitiesAreDecodedBeforeEscaping() {
+        // &nbsp; stored literally in old snapshots must not survive as visible "&nbsp;" text.
+        // U+00A0 produced by unescaping is normalised to a regular space.
+        assertEquals("exercices p.112 - suite",
+                HtmlText.escapeAndLinkify("exercices p.112&nbsp;- suite"));
+    }
+
+    @Test
+    void linkify_htmlEntitiesInUrlSurroundingsAreNormalised() {
+        // &nbsp; adjacent to a URL must not break the anchor or produce visible entity text.
+        String out = HtmlText.escapeAndLinkify("voir&nbsp;https://example.com.");
+        assertEquals("voir <a href=\"https://example.com\" target=\"_blank\" rel=\"noopener noreferrer\">"
+                + "https://example.com</a>.", out);
+    }
 }

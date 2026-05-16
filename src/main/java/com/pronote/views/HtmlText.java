@@ -1,5 +1,7 @@
 package com.pronote.views;
 
+import org.apache.commons.text.StringEscapeUtils;
+
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -41,6 +43,11 @@ final class HtmlText {
     /**
      * HTML-escape {@code s} and convert embedded {@code http(s)://} URLs into anchor tags.
      *
+     * <p>Input is first normalised: HTML entities (e.g. {@code &nbsp;} left in stored
+     * snapshots from an older scraper version) are decoded, and U+00A0 (non-breaking space
+     * produced by {@code &nbsp;}) is collapsed to a regular space, since it is a Pronote
+     * formatting artefact rather than intentional content.
+     *
      * <p>Trailing sentence punctuation is emitted as text after the anchor so a sentence like
      * "voir https://example.com." doesn't pull the period into the link target.
      *
@@ -48,6 +55,7 @@ final class HtmlText {
      */
     static String escapeAndLinkify(String s) {
         if (s == null) return "";
+        s = StringEscapeUtils.unescapeHtml4(s).replace(' ', ' ');
         Matcher m = URL_PATTERN.matcher(s);
         if (!m.find()) {
             return escape(s);
