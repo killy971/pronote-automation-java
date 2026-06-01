@@ -255,10 +255,16 @@ public class Main {
 
         // Apply smart timetable filtering: suppress past items and bulk normal additions
         // for the furthest-future week when it first enters the retrieval window.
+        // Derive furthestWeekStart from actual fetched data — Pronote may return fewer
+        // weeks than weeksAhead (e.g. end of term), and running on a Sunday shifts the
+        // formula by a week relative to the actual last week returned.
         if (features.isTimetable() && prevTimetable.isPresent()) {
-            LocalDate furthestWeekStart = LocalDate.now()
-                    .plusWeeks(config.getPronote().getWeeksAhead())
-                    .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            LocalDate furthestWeekStart = timetable.stream()
+                    .filter(e -> e.getStartTime() != null)
+                    .map(e -> e.getStartTime().toLocalDate()
+                            .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)))
+                    .max(LocalDate::compareTo)
+                    .orElse(LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)));
             TimetableDiffFilter timetableFilter = new TimetableDiffFilter();
             timetableDiff = timetableFilter.filter(
                     timetableDiff,
@@ -574,9 +580,12 @@ public class Main {
                 ? diffEngine.diff(prevTimetable.get(), timetable) : emptyDiff();
 
         if (features.isTimetable() && prevTimetable.isPresent()) {
-            LocalDate furthestWeekStart = LocalDate.now()
-                    .plusWeeks(config.getPronote().getWeeksAhead())
-                    .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            LocalDate furthestWeekStart = timetable.stream()
+                    .filter(e -> e.getStartTime() != null)
+                    .map(e -> e.getStartTime().toLocalDate()
+                            .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)))
+                    .max(LocalDate::compareTo)
+                    .orElse(LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)));
             TimetableDiffFilter timetableFilter = new TimetableDiffFilter();
             timetableDiff = timetableFilter.filter(
                     timetableDiff, prevTimetable.get(), furthestWeekStart, LocalDateTime.now());
