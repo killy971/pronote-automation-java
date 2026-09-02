@@ -58,7 +58,7 @@ Main (runFetch / runViews / runDiff / runValidate)
  ├── ConfigLoader              → loads config.yaml (SnakeYAML)
  ├── ManualEntryLoader         → loads manual-entries.yaml (assignments + upcoming evals)
  ├── SubjectEnricher           → resolves enrichedSubject from subject (+optional teacher)
- ├── LockoutGuard              → halts job after N consecutive login failures
+ ├── LockoutGuard              → halts job after N consecutive login failures (self-clearing)
  ├── SessionStore              → load/save session.json (persists AES keys + cookies)
  ├── PronoteAuthenticator      → full 10-step login flow
  ├── PronoteHttpClient         → AES-encrypted JSON-RPC calls + rate limiting + attachment download
@@ -89,7 +89,7 @@ All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counte
 | `config` | `ConfigLoader` | Load + validate YAML; fail fast |
 | `config` | `ManualEntryLoader` | Parse `manual-entries.yaml` into `Assignment` + synthetic `TimetableEntry(isEval=true)` lists. Stable IDs prefixed `manual:`; explicit `id:` field optional. |
 | `config` | `SubjectEnricher` | Resolve `enrichedSubject` from raw subject (+optional teacher); two-pass rule eval, strips teacher prefixes ("M.", "Mme") |
-| `safety` | `LockoutGuard` | Track login failures in `data/lockout.json` |
+| `safety` | `LockoutGuard` | Track login failures in `data/lockout.json`; auto-clear after the cooldown; flag the once-per-episode alert |
 | `safety` | `RateLimiter` | Sleep `minDelay + random(jitter)` before each request |
 | `auth` | `CryptoHelper` | AES-CBC, RSA-1024, MD5, SHA256, key derivation |
 | `auth` | `PronoteSession` | Mutable: AES key/IV, cookies, order counter |
@@ -162,7 +162,15 @@ cheap call. If the probe succeeds, no login is performed.
 - Do **not** bypass this in new scraper calls.
 
 ### Login Safety
-- `LockoutGuard` halts the job after 3 consecutive login failures.
+- `LockoutGuard` halts the job after `safety.maxLoginFailures` consecutive login failures (default 3).
+- The lockout **clears itself** once `safety.lockoutCooldownMinutes` (default 360) have elapsed since
+  the last failure, so a transient outage self-heals; a genuinely bad password still backs off to a
+  handful of attempts per day. Set the cooldown to `0` to require deleting `data/lockout.json`.
+- A lockout is **announced once per episode** via the error-alert channel. `runFetch` builds the
+  error notifier *before* the lockout check for exactly this reason — otherwise the exception
+  unwinds to `main()` with no alert and the sync stops silently. `LockoutException.isAlertPending()`
+  stays true until the caller confirms delivery with `markLockoutAlerted()`, so a failed send is
+  retried next run instead of consuming the episode's single alert.
 - Login is retried **zero times** — one attempt per job run.
 - Never add retry loops around `PronoteAuthenticator.login()`.
 
@@ -426,7 +434,7 @@ Runtime data directory (default: `./data/`):
 ```
 data/
 ├── session.json                ← AES keys + cookies (permissions: 600)
-├── lockout.json                ← consecutive failure counter
+├── lockout.json                ← consecutive failure counter + last-failure / alerted timestamps
 ├── diff-latest.json            ← structured diff from the most recent run
 ├── diff-history.log            ← append-only one-line-per-run audit trail
 ├── snapshots/

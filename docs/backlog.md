@@ -75,26 +75,31 @@ Only revisit keep-alive if the cadence ever drops below ~5 minutes, where the ar
 
 ---
 
-### 8. A lockout stops the job silently and permanently
+### ~~8. A lockout stops the job silently and permanently~~ ✓ Done
 
-`LockoutGuard.checkAndThrowIfLocked()` throws once `consecutiveFailures >= maxLoginFailures`
-(currently **2** in config.yaml) and there is no time-based reset — the counter only clears on a
-successful login, which can no longer happen. Recovery requires hand-editing
-`data/lockout.json`.
+Fixed on three fronts:
 
-Worse, it is invisible. `checkAndThrowIfLocked()` runs in `runFetch` *before* the error notifier
-is constructed, so the exception unwinds to the top-level `catch` in `Main.main`, which logs and
-`System.exit(1)`. **No ntfy alert is sent** — unlike every other pipeline phase, which calls
-`sendErrorAlert`. The sync would just stop, and the first symptom would be stale views.
+- **It is announced.** `runFetch` now builds the error notifier *before* the lockout check and
+  catches `LockoutException` to `sendErrorAlert(..., "verrouillage", ...)`. Previously the
+  exception unwound straight to `Main.main`'s catch, which only logs and exits 1 — no ntfy alert,
+  unlike every other pipeline phase — so the sync stopped silently and the first symptom was
+  stale views.
+- **Announced once per episode, not 27x/day.** `LockoutState.lockoutAlertedAt` gates it.
+  `LockoutException.isAlertPending()` stays true until the caller confirms delivery with
+  `markLockoutAlerted()`, so a failed send is retried on the next run rather than consuming the
+  episode's only alert. `recordSuccess()` and the cooldown clear re-arm it.
+- **It expires.** `safety.lockoutCooldownMinutes` (default 360) auto-clears the lockout once that
+  long has passed since the last failure, so a Pronote maintenance window or a DNS blip self-heals.
+  A genuinely bad password still backs off to ~4 attempts/day instead of 27. `0` restores the old
+  manual-reset-only behaviour. A `null` `lastFailureTimestamp` never ages out — it is not evidence
+  that time has passed — so a hand-edited file still requires a manual reset.
 
-With 27 logins/day (see #7), two consecutive transient failures — a Pronote maintenance window,
-a DNS blip — are not unlikely.
+`safety.maxLoginFailures` in the deployed config was also raised from 2 to 3 (the committed
+default was already 3): the threshold of 2 was chosen when runs were manual and rare.
 
-**Sketch**: (a) send an error alert on the lockout path, by constructing the notifier before the
-lockout check or catching it explicitly in `runFetch`; (b) auto-clear the lockout once
-`lastFailureTimestamp` is older than a cooldown (a few hours), so a transient outage self-heals
-while a genuinely bad password still backs off; (c) reconsider `maxLoginFailures: 2` — it was
-chosen when runs were manual and rare.
+Verified end to end against a stub ntfy server: alert delivered on the first locked run, silent on
+the second, retried when delivery fails, and a 7-hour-old lockout clears itself and proceeds to a
+login attempt.
 
 ---
 

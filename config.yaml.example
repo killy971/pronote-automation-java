@@ -37,6 +37,11 @@ safety:
   jitterMs: 500
   # Abort and lock out after this many consecutive login failures
   maxLoginFailures: 3
+  # Minutes after the last failure at which the lockout clears itself. A transient outage
+  # (Pronote maintenance, a DNS blip) self-heals; a genuinely bad password still backs off to a
+  # few attempts per day instead of hammering the login endpoint. Set to 0 to require a manual
+  # reset (delete data/lockout.json). A lockout is announced once per episode via error alerts.
+  lockoutCooldownMinutes: 360
   # Minimum seconds between full login attempts (session-reuse probes don't count).
   # Persisted across runs, so back-to-back re-authentications (e.g. manual testing, a
   # misbehaving scheduler) are spaced out rather than hammering the login endpoint.

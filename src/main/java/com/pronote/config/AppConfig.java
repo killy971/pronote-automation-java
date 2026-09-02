@@ -118,6 +118,7 @@ public class AppConfig {
         private long jitterMs = 500;
         private int maxLoginFailures = 3;
         private int minLoginIntervalSeconds = 30;
+        private int lockoutCooldownMinutes = 360;
 
         public long getMinDelayMs() { return minDelayMs; }
         public void setMinDelayMs(long minDelayMs) { this.minDelayMs = minDelayMs; }
@@ -130,6 +131,9 @@ public class AppConfig {
 
         public int getMinLoginIntervalSeconds() { return minLoginIntervalSeconds; }
         public void setMinLoginIntervalSeconds(int minLoginIntervalSeconds) { this.minLoginIntervalSeconds = minLoginIntervalSeconds; }
+
+        public int getLockoutCooldownMinutes() { return lockoutCooldownMinutes; }
+        public void setLockoutCooldownMinutes(int lockoutCooldownMinutes) { this.lockoutCooldownMinutes = lockoutCooldownMinutes; }
     }
 
     public static class NotificationsConfig {

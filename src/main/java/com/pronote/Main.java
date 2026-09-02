@@ -115,8 +115,23 @@ public class Main {
 
     private static void runFetch(AppConfig config, Path dataDir, boolean dryRun) {
         // ---- 2. Check lockout ---------------------------------------------
-        LockoutGuard lockoutGuard = new LockoutGuard(dataDir, config.getSafety().getMaxLoginFailures());
-        lockoutGuard.checkAndThrowIfLocked();
+        // The error notifier is built *before* the lockout check so that a lockout is announced
+        // like every other pipeline failure. Previously this exception unwound straight to
+        // main()'s catch with no alert, so the sync stopped silently and the first symptom was
+        // stale views. Only the first run of a lockout episode alerts — cron runs 27x/day.
+        NotificationService errorNotifier = buildErrorNotifier(config);
+        LockoutGuard lockoutGuard = new LockoutGuard(
+                dataDir,
+                config.getSafety().getMaxLoginFailures(),
+                config.getSafety().getLockoutCooldownMinutes());
+        try {
+            lockoutGuard.checkAndThrowIfLocked();
+        } catch (LockoutGuard.LockoutException e) {
+            if (e.isAlertPending() && sendErrorAlert(errorNotifier, "verrouillage", e.getMessage())) {
+                lockoutGuard.markLockoutAlerted();
+            }
+            throw e;
+        }
 
         // ---- 3. Establish session -----------------------------------------
         RateLimiter rateLimiter = new RateLimiter(
@@ -124,7 +139,6 @@ public class Main {
                 config.getSafety().getJitterMs());
         PronoteHttpClient httpClient = new PronoteHttpClient(rateLimiter);
         SessionStore sessionStore = new SessionStore(dataDir);
-        NotificationService errorNotifier = buildErrorNotifier(config);
         PronoteSession session;
         try {
             session = acquireSession(config, httpClient, sessionStore, lockoutGuard);
@@ -795,9 +809,10 @@ public class Main {
      * @param notifier the error notifier; if {@code null} the call is a no-op
      * @param phase    short human-readable name of the phase that failed (e.g. "authentification")
      * @param detail   the error message; truncated if too long
+     * @return true if the alert was actually delivered
      */
-    private static void sendErrorAlert(NotificationService notifier, String phase, String detail) {
-        if (notifier == null) return;
+    private static boolean sendErrorAlert(NotificationService notifier, String phase, String detail) {
+        if (notifier == null) return false;
         String body = detail != null ? NotificationFormatter.truncate(detail, 200) : "(aucun détail)";
         NotificationPayload payload = new NotificationPayload(
                 "⚠ Pronote : échec — " + phase,
@@ -807,8 +822,10 @@ public class Main {
         try {
             notifier.send(payload);
             log.info("Error alert sent for phase '{}'", phase);
+            return true;
         } catch (NotificationService.NotificationException e) {
             log.warn("Failed to deliver error alert for phase '{}': {}", phase, e.getMessage());
+            return false;
         }
     }
 
