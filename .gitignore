@@ -36,6 +36,8 @@ build/
 
 # Application secrets and runtime data
 config.yaml
+# Real manual entries: contains student work and real teacher names — never commit.
+manual-entries.yaml
 data/
 
 # Vendored reference libraries (local analysis aid, not part of the build)
@@ -43,6 +45,7 @@ vendor/
 
 # Keep the example config
 !config.yaml.example
+!manual-entries.yaml.example
 
 # Temporary working directory
 tmp/
