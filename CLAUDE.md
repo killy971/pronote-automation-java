@@ -133,6 +133,22 @@ Reference implementation: [pronotepy](https://github.com/bain3/pronotepy).
                                body: { session, no: AES(order), id: funcName, dataSec: AES(params) }
 ```
 
+**Challenge handling — two server variants.** Step 7's `challenge` is solved by
+`PronoteAuthenticator.solveChallenge`, which detects the variant rather than being configured:
+
+- **Legacy** — the challenge is `AES(authKey)` of an alea-interleaved token: decrypt it, drop the
+  odd-indexed characters (`_enleverAlea`), re-encrypt.
+- **PRONOTE 2026.2.5+** — the challenge is an opaque nonce that is *not* encrypted with `authKey`.
+  The raw challenge string is AES-encrypted as-is and echoed back; the server only applies
+  `ajouterAlea`/`enleverAlea` when it asks for it explicitly (`avecAlea: true`), which the login
+  flow no longer does.
+
+The legacy path is tried first; on newer servers PKCS7 unpadding fails and we fall through to the
+direct re-encrypt. A server upgrade flips this mid-year with no warning — the symptom is
+`AES decryption failed: pad block corrupted` on every login while the browser and mobile app still
+work. See [pronotepy#346](https://github.com/bain3/pronotepy/issues/346). Both variants are pinned
+by `PronoteAuthenticatorChallengeTest`.
+
 **Session reuse**: On startup, the app tries to reload `session.json` and probe with a
 cheap call. If the probe succeeds, no login is performed.
 
@@ -245,6 +261,14 @@ Do not assume a new API accepts `DateDebut`/`DateFin` or `NumeroSemaine` because
 - `PageCahierDeTexte` (onglet 88): `domaine` as `{"_T": 8, "V": "[weekFrom..weekTo]"}` using school-year week numbers — sending date fields silently returns `{}`
 
 Always read the relevant function in pronotepy's `clients.py` or `pronoteAPI.py` before building params.
+
+**Never send `DateDebut`/`DateFin` to `PageEmploiDuTemps`.** Pronote intersects them with the
+requested week and returns an empty response — no `ListeCours` key at all — whenever the range
+starts in the past. That silently dropped the *current* week from every run made after its Monday,
+while all future weeks looked fine. Select weeks with `NumeroSemaine` alone (as pronotepy does) and
+filter by date from the parsed response.
+
+
 
 ### File attachments in responses
 

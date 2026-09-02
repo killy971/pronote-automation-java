@@ -87,7 +87,7 @@ public class TimetableScraper {
             int weekNumber = schoolYearWeekNumber(weekStart, session);
             log.info("Fetching timetable for week {} (starting {})", weekNumber, weekStart);
 
-            List<TimetableEntry> weekEntries = fetchWeek(session, client, weekStart, weekNumber, group);
+            List<TimetableEntry> weekEntries = fetchWeek(session, client, weekNumber, group);
             all.addAll(weekEntries);
             weekStart = weekStart.plusWeeks(1);
         }
@@ -97,17 +97,16 @@ public class TimetableScraper {
     }
 
     private List<TimetableEntry> fetchWeek(PronoteSession session, PronoteHttpClient client,
-                                            LocalDate weekStart, int weekNumber, String group) {
+                                            int weekNumber, String group) {
         ObjectNode params = jackson.createObjectNode();
-        // Pronote identifies weeks by their Monday date and/or week number
-        LocalDate weekEnd = weekStart.plusDays(6); // Sunday
+        // Weeks are selected by school-year week number only.
+        //
+        // Do NOT send DateDebut/DateFin here. Pronote intersects them with the requested week and
+        // returns an empty response (no "ListeCours" at all) whenever the range starts in the past,
+        // which silently dropped the current week from every run made after its Monday. pronotepy
+        // sends NumeroSemaine alone and filters by date client-side; we parse dates from the
+        // response, so the range fields buy us nothing.
         params.put("NumeroSemaine", weekNumber);
-        params.put("DateDebut", jackson.createObjectNode()
-                .put("_T", 7)
-                .put("V", weekStart.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) + " 0:0:0"));
-        params.put("DateFin", jackson.createObjectNode()
-                .put("_T", 7)
-                .put("V", weekEnd.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) + " 0:0:0"));
         // For parent accounts, specify whose timetable to fetch via the "ressource" parameter.
         // Without it, Pronote returns only a partial class-level view (whole-class entries only).
         if (session.getChildId() != null) {

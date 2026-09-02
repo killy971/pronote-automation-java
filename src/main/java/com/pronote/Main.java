@@ -744,13 +744,24 @@ public class Main {
             sessionStore.delete();
         }
 
+        long waitSeconds = lockoutGuard.secondsUntilNextAttemptAllowed(config.getSafety().getMinLoginIntervalSeconds());
+        if (waitSeconds > 0) {
+            log.info("Waiting {}s before login attempt to avoid rapid re-authentication...", waitSeconds);
+            try {
+                Thread.sleep(waitSeconds * 1000L);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        lockoutGuard.recordAttempt();
+
         log.info("Performing full login...");
         PronoteAuthenticator authenticator = new PronoteAuthenticator();
         PronoteSession session;
         try {
             session = authenticator.login(config);
             lockoutGuard.recordSuccess();
-        } catch (PronoteAuthenticator.AuthException e) {
+        } catch (RuntimeException e) {
             lockoutGuard.recordFailure();
             throw new RuntimeException("Login failed: " + e.getMessage(), e);
         }

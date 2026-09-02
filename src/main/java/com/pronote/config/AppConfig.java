@@ -117,6 +117,7 @@ public class AppConfig {
         private long minDelayMs = 2000;
         private long jitterMs = 500;
         private int maxLoginFailures = 3;
+        private int minLoginIntervalSeconds = 30;
 
         public long getMinDelayMs() { return minDelayMs; }
         public void setMinDelayMs(long minDelayMs) { this.minDelayMs = minDelayMs; }
@@ -126,6 +127,9 @@ public class AppConfig {
 
         public int getMaxLoginFailures() { return maxLoginFailures; }
         public void setMaxLoginFailures(int maxLoginFailures) { this.maxLoginFailures = maxLoginFailures; }
+
+        public int getMinLoginIntervalSeconds() { return minLoginIntervalSeconds; }
+        public void setMinLoginIntervalSeconds(int minLoginIntervalSeconds) { this.minLoginIntervalSeconds = minLoginIntervalSeconds; }
     }
 
     public static class NotificationsConfig {

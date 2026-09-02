@@ -33,7 +33,7 @@ import java.util.regex.Pattern;
  *   <li>Update session IV to MD5(ivTemp)</li>
  *   <li>POST Identification — get challenge and alea</li>
  *   <li>Derive auth key: MD5(username + SHA256(alea+password).hexUpperCase)</li>
- *   <li>Decrypt challenge, apply _enleverAlea (keep even-indexed chars), re-encrypt</li>
+ *   <li>Solve challenge: legacy decrypt/strip/re-encrypt, or direct re-encrypt on 2026.2.5+</li>
  *   <li>POST Authentification — send solved challenge</li>
  *   <li>Re-derive session key from decrypted cle field</li>
  * </ol>
@@ -231,16 +231,8 @@ public class PronoteAuthenticator {
         // _Communication.post which uses self.encryption (still initial key at this point).
         // authKey is applied only after_auth succeeds (for 'cle' decryption → final key).
 
-        // ---- Step 8: Decrypt challenge, strip alea, re-encrypt -----------
-        // pronotepy: aes_decrypt (with PKCS7 unpad) → dec.decode() → _enleverAlea (string chars) → encode() → aes_encrypt
-        byte[] challengeBytes = CryptoHelper.fromHex(challenge);
-        byte[] decryptedChallenge = CryptoHelper.aesDecrypt(challengeBytes, authKey, session.getAesIv());
-        String decryptedStr = new String(decryptedChallenge, StandardCharsets.UTF_8);
-        // _enleverAlea: keep only even-indexed characters (matches pronotepy's string-level operation)
-        String stripped = enleverAlea(decryptedStr);
-        byte[] strippedBytes = stripped.getBytes(StandardCharsets.UTF_8);
-        byte[] reEncrypted = CryptoHelper.aesEncrypt(strippedBytes, authKey, session.getAesIv());
-        String ch = CryptoHelper.toHex(reEncrypted);
+        // ---- Step 8: Solve the challenge ---------------------------------
+        String ch = solveChallenge(challenge, authKey, session.getAesIv());
 
         // ---- Step 9: POST Authentification --------------------------------
         ObjectNode authData = jackson.createObjectNode()
@@ -423,6 +415,40 @@ public class PronoteAuthenticator {
             return donneesSec.get("donnees");
         }
         return donneesSec;
+    }
+
+    /**
+     * Computes the {@code challenge} field of the Authentification request.
+     *
+     * <p>Two server behaviours exist in the wild:
+     * <ul>
+     *   <li><b>Legacy</b> — the challenge is AES({@code authKey}) of an alea-interleaved token.
+     *       It must be decrypted, stripped of the interleaved alea characters
+     *       ({@code _enleverAlea}) and re-encrypted.</li>
+     *   <li><b>PRONOTE 2026.2.5+</b> — the challenge is an opaque nonce that is never encrypted
+     *       with {@code authKey}. The raw challenge string is AES-encrypted as-is and echoed back;
+     *       {@code ajouterAlea}/{@code enleverAlea} are only applied when the server asks for it
+     *       explicitly ({@code avecAlea: true}), which the login flow no longer does.</li>
+     * </ul>
+     *
+     * <p>The variant is detected rather than configured: on the newer servers the challenge is not
+     * a valid {@code authKey} ciphertext, so PKCS7 unpadding fails and we fall through to the
+     * direct re-encrypt. See <a href="https://github.com/bain3/pronotepy/issues/346">pronotepy#346</a>.
+     *
+     * <p>Package-private for unit testing.
+     */
+    static String solveChallenge(String challenge, byte[] authKey, byte[] iv) {
+        try {
+            byte[] decrypted = CryptoHelper.aesDecrypt(CryptoHelper.fromHex(challenge), authKey, iv);
+            String stripped = enleverAlea(new String(decrypted, StandardCharsets.UTF_8));
+            log.debug("Challenge solved via legacy decrypt/strip/re-encrypt path");
+            return CryptoHelper.toHex(
+                    CryptoHelper.aesEncrypt(stripped.getBytes(StandardCharsets.UTF_8), authKey, iv));
+        } catch (RuntimeException e) {
+            log.debug("Legacy challenge path rejected ({}); using direct re-encrypt path", e.getMessage());
+            return CryptoHelper.toHex(
+                    CryptoHelper.aesEncrypt(challenge.getBytes(StandardCharsets.UTF_8), authKey, iv));
+        }
     }
 
     /** _enleverAlea: keep only even-indexed characters from the decrypted challenge (pronotepy string-level). */

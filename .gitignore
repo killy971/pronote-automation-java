@@ -46,3 +46,6 @@ vendor/
 
 # Temporary working directory
 tmp/
+
+# Year-end archives of downloaded Pronote data
+archive/

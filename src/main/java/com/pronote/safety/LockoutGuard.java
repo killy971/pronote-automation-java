@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 
 /**
@@ -51,7 +52,7 @@ public class LockoutGuard {
 
     /** Records a successful authentication, resetting the failure counter. */
     public void recordSuccess() {
-        LockoutState state = new LockoutState();
+        LockoutState state = load();
         state.consecutiveFailures = 0;
         state.lastFailureTimestamp = null;
         save(state);
@@ -65,6 +66,33 @@ public class LockoutGuard {
         state.lastFailureTimestamp = Instant.now();
         save(state);
         log.warn("Login failure recorded. Consecutive failures: {}/{}", state.consecutiveFailures, maxFailures);
+    }
+
+    /**
+     * Records that a full login attempt is about to be made, regardless of outcome.
+     * Used by {@link #secondsUntilNextAttemptAllowed} to space out full re-authentications —
+     * session-reuse probes don't count, only actual calls to {@code PronoteAuthenticator.login()}.
+     */
+    public void recordAttempt() {
+        LockoutState state = load();
+        state.lastAttemptTimestamp = Instant.now();
+        save(state);
+    }
+
+    /**
+     * Returns how many seconds must still elapse before another full login attempt should be
+     * made, based on the timestamp of the last recorded attempt. Returns 0 if no prior attempt
+     * is recorded or the minimum interval has already elapsed.
+     */
+    public long secondsUntilNextAttemptAllowed(int minIntervalSeconds) {
+        return secondsToWait(load().lastAttemptTimestamp, Instant.now(), minIntervalSeconds);
+    }
+
+    /** Pure computation, package-private for unit testing without relying on wall-clock timing. */
+    static long secondsToWait(Instant lastAttempt, Instant now, int minIntervalSeconds) {
+        if (lastAttempt == null) return 0;
+        long elapsed = Duration.between(lastAttempt, now).getSeconds();
+        return Math.max(0, minIntervalSeconds - elapsed);
     }
 
     // -------------------------------------------------------------------------
@@ -96,6 +124,7 @@ public class LockoutGuard {
     public static class LockoutState {
         public int consecutiveFailures = 0;
         public Instant lastFailureTimestamp = null;
+        public Instant lastAttemptTimestamp = null;
     }
 
     public static class LockoutException extends RuntimeException {
