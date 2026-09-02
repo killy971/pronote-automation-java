@@ -50,6 +50,54 @@ From a timetable day-view eval badge / assignment-view eval card, link to the co
 
 ---
 
+### 7. Stop paying for a session probe that can never succeed
+
+Every run logs `Session probe failed — performing fresh login`, so `session.json` reuse never
+works and each run costs a full login. Cron runs 27x/day, making login the most-repeated
+sensitive operation in the system.
+
+**This is not a bug in our session handling.** Pronote sessions have a very short server-side
+idle timeout. Pronote's own `eleve.js` pings every **2 minutes**, and pronotepy mirrors it
+(`_KeepAlive` in `pronoteAPI.py` posts `Navigation` with `{"onglet": 7, "ongletPrec": 7}` after
+110s of inactivity). At a 30-minute cadence the session is always long dead — which also
+explains the iPhone app re-authenticating after a few minutes idle.
+
+**Keeping the session alive is the wrong trade.** A ping every ~2 minutes is ~720 requests/day
+versus 27 logins/day, and it would require a resident daemon — the app is deliberately
+short-lived and cron-driven. More traffic, more bot-like, worse.
+
+**Sketch (the actual win)**: the probe is a wasted HTTP round trip plus a `RateLimiter.await()`
+on every single run, and it always fails. Skip it when `session.json`'s `createdAt` is older
+than a short TTL (~3 min) and go straight to login. Saves one request per run and removes the
+misleading log line. Keep the probe for the rare back-to-back invocation where reuse can work.
+
+Only revisit keep-alive if the cadence ever drops below ~5 minutes, where the arithmetic flips.
+
+---
+
+### 8. A lockout stops the job silently and permanently
+
+`LockoutGuard.checkAndThrowIfLocked()` throws once `consecutiveFailures >= maxLoginFailures`
+(currently **2** in config.yaml) and there is no time-based reset — the counter only clears on a
+successful login, which can no longer happen. Recovery requires hand-editing
+`data/lockout.json`.
+
+Worse, it is invisible. `checkAndThrowIfLocked()` runs in `runFetch` *before* the error notifier
+is constructed, so the exception unwinds to the top-level `catch` in `Main.main`, which logs and
+`System.exit(1)`. **No ntfy alert is sent** — unlike every other pipeline phase, which calls
+`sendErrorAlert`. The sync would just stop, and the first symptom would be stale views.
+
+With 27 logins/day (see #7), two consecutive transient failures — a Pronote maintenance window,
+a DNS blip — are not unlikely.
+
+**Sketch**: (a) send an error alert on the lockout path, by constructing the notifier before the
+lockout check or catching it explicitly in `runFetch`; (b) auto-clear the lockout once
+`lastFailureTimestamp` is older than a cooldown (a few hours), so a transient outage self-heals
+while a genuinely bad password still backs off; (c) reconsider `maxLoginFailures: 2` — it was
+chosen when runs were manual and rare.
+
+---
+
 ### General docs hygiene
 
-The subject/teacher reference table baked into `manual-entries.yaml.example` is the user's personal cheat sheet and will go stale as teachers change. Worth treating it as live documentation — re-verify each school year. Same for the example evaluation `periodName` values.
+`manual-entries.yaml.example` is committed to a public repo, so its teacher names are now placeholders (`SYN_TEACHER_*`); the real subject/teacher mapping lives in the gitignored `config.yaml`. Both go stale as teachers change — re-verify the raw subject strings and the example `periodName` values each school year, and remember that enrichment matching is exact and case-sensitive, so a near-miss fails silently.

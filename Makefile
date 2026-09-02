@@ -9,6 +9,14 @@ CONFIG  := config.yaml
 JVM_OPTS := -Djava.net.preferIPv4Stack=true
 ARGS ?=
 
+# Everything the fat JAR is built from. Declared so $(JAR) is a genuine file target:
+# with a phony prerequisite make treats the JAR as always out of date and shells out to
+# Gradle on every invocation. That matters because cron runs `make run` 27x/day on a
+# Raspberry Pi, where a no-op Gradle build still costs a daemon start and tens of seconds.
+# Tests are deliberately excluded — they are not packaged into the JAR.
+SOURCES := $(shell find src/main -type f 2>/dev/null) \
+           $(wildcard build.gradle build.gradle.kts settings.gradle settings.gradle.kts gradle.properties)
+
 .PHONY: build test test-force run run-debug views diff notify-preview validate clean help
 
 ## build: compile and package the fat JAR
@@ -81,4 +89,10 @@ clean:
 help:
 	@grep -E '^## ' Makefile | sed 's/## /  make /'
 
-$(JAR): build
+# Rebuild only when a packaged source actually changed. `make build` forces a rebuild.
+$(JAR): $(SOURCES)
+	./gradlew shadowJar
+	@# Gradle hashes content, so an up-to-date build leaves the JAR's mtime untouched and
+	@# make would consider it stale forever. Stamp it so the dependency actually converges.
+	@touch $(JAR)
+	@echo "JAR built: $(JAR)"
