@@ -339,6 +339,19 @@ Common keys per block:
 
 All files are self-contained (CSS embedded inline; minimal JS only for the eval-detail dialog). The timetable views are annotated with assignment counts and eval markers loaded from the assignments snapshot.
 
+### Editing `subjectEnrichment` rules
+
+`enrichedSubject` is computed at fetch time and **persisted** into the snapshot, so a snapshot
+written before a rule change carries stale values. `runViews` calls
+`AssignmentTeacherResolver.reEnrichFromConfig`, which re-applies the rules to both timetable
+entries and assignments in memory before rendering — so `make views` reflects a rule edit
+immediately, offline, without a login.
+
+`DiffEngine` excludes `enrichedSubject` from comparison (`EnrichedSubjectDiffMixin`) because it
+is derived locally, not fetched: without that, editing one rule marks every affected item as
+"modified" and notifies once per item. The `subject` and `teacher` it derives from are still
+compared.
+
 ### CSS / styling
 
 CSS lives inside each generator class as a static text-block `CSS` constant, embedded verbatim into every generated file.

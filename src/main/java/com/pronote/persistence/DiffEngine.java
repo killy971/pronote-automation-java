@@ -5,7 +5,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.pronote.domain.Assignment;
 import com.pronote.domain.AttachmentRef;
+import com.pronote.domain.CompetenceEvaluation;
+import com.pronote.domain.Grade;
+import com.pronote.domain.SchoolLifeEvent;
+import com.pronote.domain.TimetableEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,7 +38,19 @@ public class DiffEngine {
         // the attachment itself hasn't changed. url is excluded because G=1 attachments carry
         // it in the transient downloadUrl field (never persisted), leaving url=null in snapshots.
         this.jackson.addMixIn(AttachmentRef.class, AttachmentRefDiffMixin.class);
+        // enrichedSubject is a display value derived from (subject, teacher) plus the local
+        // subjectEnrichment rules — not data from Pronote. Editing a rule would otherwise mark
+        // every affected item as "modified" and notify once per item, for a change that only
+        // happened on this machine. Both inputs it derives from are still compared.
+        for (Class<?> type : List.of(Assignment.class, TimetableEntry.class, Grade.class,
+                                     CompetenceEvaluation.class, SchoolLifeEvent.class)) {
+            this.jackson.addMixIn(type, EnrichedSubjectDiffMixin.class);
+        }
     }
+
+    /** Mixin that suppresses the locally-derived enrichedSubject from diff comparison. */
+    @JsonIgnoreProperties({"enrichedSubject"})
+    private abstract static class EnrichedSubjectDiffMixin {}
 
     /** Mixin that suppresses runtime/transient fields from diff comparison. */
     @JsonIgnoreProperties({"localPath", "mimeType", "url"})

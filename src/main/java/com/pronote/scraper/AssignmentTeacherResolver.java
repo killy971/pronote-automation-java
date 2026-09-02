@@ -28,6 +28,32 @@ public class AssignmentTeacherResolver {
     }
 
     /**
+     * Re-applies the configured subject enrichment to a snapshot loaded from disk, so that
+     * edits to {@code subjectEnrichment.rules} take effect in {@code --mode views} without
+     * a full online fetch.
+     *
+     * <p>{@code enrichedSubject} is computed at fetch time and persisted, so a snapshot
+     * written before a rule change carries stale values. Timetable entries carry their own
+     * teacher and can be enriched directly; assignments have no teacher in the Pronote
+     * payload, so they get a baseline pass here (which applies subject-only rules) and are
+     * then refined by {@link #reEnrichAssignmentsWithTeacher}, which resolves the teacher
+     * from the timetable where it can.
+     */
+    public void reEnrichFromConfig(List<Assignment> assignments, List<TimetableEntry> timetable) {
+        for (TimetableEntry e : timetable) {
+            if (e.getSubject() != null) {
+                e.setEnrichedSubject(subjectEnricher.enrich(e.getSubject(), e.getTeacher()));
+            }
+        }
+        for (Assignment a : assignments) {
+            if (a.getSubject() != null) {
+                a.setEnrichedSubject(subjectEnricher.enrich(a.getSubject(), a.getTeacher()));
+            }
+        }
+        reEnrichAssignmentsWithTeacher(assignments, timetable);
+    }
+
+    /**
      * Re-applies subject enrichment to each assignment using a teacher name resolved
      * from the timetable.
      *

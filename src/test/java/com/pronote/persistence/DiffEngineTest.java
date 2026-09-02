@@ -105,4 +105,27 @@ class DiffEngineTest {
         assertEquals(2, result.removed().size());
         assertTrue(result.added().isEmpty());
     }
+
+    @Test
+    void noDiff_whenOnlyEnrichedSubjectChanged() {
+        // enrichedSubject is derived locally from subjectEnrichment rules. Editing a rule must
+        // not be reported as a change to the data, or every affected item would notify.
+        Assignment before = assignment("1", "SYN_MATHS", false);
+        before.setEnrichedSubject("SYN_MATHS");
+        Assignment after = assignment("1", "SYN_MATHS", false);
+        after.setEnrichedSubject("Mathématiques");
+
+        assertTrue(engine.diff(List.of(before), List.of(after)).isEmpty());
+    }
+
+    @Test
+    void diff_stillReported_whenTheUnderlyingSubjectChanged() {
+        // The inputs enrichedSubject derives from are still compared.
+        Assignment before = assignment("1", "SYN_MATHS", false);
+        before.setEnrichedSubject("Mathématiques");
+        Assignment after = assignment("1", "SYN_PHYSICS", false);
+        after.setEnrichedSubject("Mathématiques");
+
+        assertFalse(engine.diff(List.of(before), List.of(after)).isEmpty());
+    }
 }

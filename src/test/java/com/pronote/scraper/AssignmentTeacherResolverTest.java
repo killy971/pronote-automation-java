@@ -288,4 +288,70 @@ class AssignmentTeacherResolverTest {
         assertEquals(LocalDateTime.of(2030, 5, 1, 8, 0), eval.getStartTime());
         assertEquals(LocalDateTime.of(2030, 5, 1, 9, 0), eval.getEndTime());
     }
+
+    // -------------------------------------------------------------------------
+    // reEnrichFromConfig — applies rule edits to an already-persisted snapshot
+    // -------------------------------------------------------------------------
+
+    /** Enricher with a subject-only rule, standing in for a freshly edited config. */
+    private static SubjectEnricher enricherWithSubjectOnlyRule() {
+        AppConfig.SubjectEnrichmentConfig cfg = new AppConfig.SubjectEnrichmentConfig();
+        AppConfig.SubjectEnrichmentRule r = new AppConfig.SubjectEnrichmentRule();
+        r.setSubject("SYN_SCIENCES");
+        r.setEnrichedSubject("Sciences");
+        cfg.setRules(List.of(r));
+        return new SubjectEnricher(cfg);
+    }
+
+    @Test
+    void reEnrichFromConfig_refreshesStaleTimetableEnrichment() {
+        TimetableEntry e = tt("SYN_SCIENCES", "TEACHER_A",
+                LocalDateTime.of(2030, 5, 1, 8, 0), LocalDateTime.of(2030, 5, 1, 9, 0));
+        e.setEnrichedSubject("SYN_SCIENCES");   // stale value persisted before the rule existed
+
+        new AssignmentTeacherResolver(enricherWithSubjectOnlyRule())
+                .reEnrichFromConfig(new ArrayList<>(), new ArrayList<>(List.of(e)));
+
+        assertEquals("Sciences", e.getEnrichedSubject());
+    }
+
+    @Test
+    void reEnrichFromConfig_refreshesAssignment_evenWhenTeacherCannotBeResolved() {
+        // Subject absent from the timetable, so the teacher lookup yields nothing; the
+        // subject-only rule must still be applied.
+        Assignment a = newAssignment("SYN_SCIENCES", LocalDate.of(2030, 5, 1), null);
+        a.setEnrichedSubject("SYN_SCIENCES");
+        TimetableEntry unrelated = tt("SYN_OTHER", "TEACHER_A",
+                LocalDateTime.of(2030, 5, 1, 8, 0), LocalDateTime.of(2030, 5, 1, 9, 0));
+
+        new AssignmentTeacherResolver(enricherWithSubjectOnlyRule())
+                .reEnrichFromConfig(new ArrayList<>(List.of(a)), new ArrayList<>(List.of(unrelated)));
+
+        assertEquals("Sciences", a.getEnrichedSubject());
+    }
+
+    @Test
+    void reEnrichFromConfig_stillPrefersTheTeacherResolvedFromTheTimetable() {
+        // The teacher-specific rule must win over the baseline pass.
+        TimetableEntry lesson = tt("SYN_COMBO", "TEACHER_BETA",
+                LocalDateTime.of(2030, 5, 1, 8, 0), LocalDateTime.of(2030, 5, 1, 9, 0));
+        Assignment a = newAssignment("SYN_COMBO", LocalDate.of(2030, 5, 1), null);
+
+        new AssignmentTeacherResolver(enricherWithSplit())
+                .reEnrichFromConfig(new ArrayList<>(List.of(a)), new ArrayList<>(List.of(lesson)));
+
+        assertEquals("Beta", a.getEnrichedSubject());
+        assertEquals("Beta", lesson.getEnrichedSubject());
+    }
+
+    @Test
+    void reEnrichFromConfig_leavesUnmatchedSubjectsAsTheRawString() {
+        TimetableEntry e = tt("SYN_UNMAPPED", "TEACHER_A",
+                LocalDateTime.of(2030, 5, 1, 8, 0), LocalDateTime.of(2030, 5, 1, 9, 0));
+
+        new AssignmentTeacherResolver(enricherWithSubjectOnlyRule())
+                .reEnrichFromConfig(new ArrayList<>(), new ArrayList<>(List.of(e)));
+
+        assertEquals("SYN_UNMAPPED", e.getEnrichedSubject());
+    }
 }

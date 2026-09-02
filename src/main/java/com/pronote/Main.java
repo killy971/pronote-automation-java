@@ -433,10 +433,11 @@ public class Main {
             }
         }
 
-        // Re-apply teacher-based enrichment once, before any view is rendered, so that
-        // both the timetable and assignment views see consistent enrichedSubject values.
-        // This also re-enriches snapshots saved before the enrichment config was last updated.
-        new AssignmentTeacherResolver(enricher).reEnrichAssignmentsWithTeacher(assignmentsData, timetableData);
+        // Re-apply subject enrichment once, before any view is rendered, so that the timetable
+        // and assignment views agree on enrichedSubject. This also re-enriches snapshots saved
+        // before subjectEnrichment.rules was last edited, so rule changes show up in
+        // `--mode views` without a full fetch.
+        new AssignmentTeacherResolver(enricher).reEnrichFromConfig(assignmentsData, timetableData);
 
         if (timetableViewEnabled) {
             if (timetableSnap.isEmpty()) {
