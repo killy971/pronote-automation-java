@@ -119,6 +119,7 @@ public class AppConfig {
         private int maxLoginFailures = 3;
         private int minLoginIntervalSeconds = 30;
         private int lockoutCooldownMinutes = 360;
+        private int sessionProbeMaxAgeSeconds = 120;
 
         public long getMinDelayMs() { return minDelayMs; }
         public void setMinDelayMs(long minDelayMs) { this.minDelayMs = minDelayMs; }
@@ -134,6 +135,9 @@ public class AppConfig {
 
         public int getLockoutCooldownMinutes() { return lockoutCooldownMinutes; }
         public void setLockoutCooldownMinutes(int lockoutCooldownMinutes) { this.lockoutCooldownMinutes = lockoutCooldownMinutes; }
+
+        public int getSessionProbeMaxAgeSeconds() { return sessionProbeMaxAgeSeconds; }
+        public void setSessionProbeMaxAgeSeconds(int sessionProbeMaxAgeSeconds) { this.sessionProbeMaxAgeSeconds = sessionProbeMaxAgeSeconds; }
     }
 
     public static class NotificationsConfig {

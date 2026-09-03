@@ -46,6 +46,11 @@ safety:
   # Persisted across runs, so back-to-back re-authentications (e.g. manual testing, a
   # misbehaving scheduler) are spaced out rather than hammering the login endpoint.
   minLoginIntervalSeconds: 30
+  # Only probe a stored session for reuse if it was last used within this many seconds.
+  # Pronote drops an idle session after about two minutes (its own eleve.js pings every 2 min),
+  # so at a 15- or 30-minute cadence the probe is a guaranteed-to-fail request on every run.
+  # Raise it only if you also keep the session warm; set to 0 to never probe (always log in).
+  sessionProbeMaxAgeSeconds: 120
 
 notifications:
   # Both channels can be left disabled during initial setup.

@@ -50,28 +50,37 @@ From a timetable day-view eval badge / assignment-view eval card, link to the co
 
 ---
 
-### 7. Stop paying for a session probe that can never succeed
+### ~~7. Stop paying for a session probe that can never succeed~~ ✓ Done
 
-Every run logs `Session probe failed — performing fresh login`, so `session.json` reuse never
-works and each run costs a full login. Cron runs 27x/day, making login the most-repeated
-sensitive operation in the system.
+Every run logged `Session probe failed — performing fresh login`, so `session.json` reuse never
+worked and each run cost a full login plus one wasted request and one `RateLimiter.await()`.
 
-**This is not a bug in our session handling.** Pronote sessions have a very short server-side
-idle timeout. Pronote's own `eleve.js` pings every **2 minutes**, and pronotepy mirrors it
+**This was never a bug in our session handling.** Pronote expires an idle session server-side
+after about two minutes: its own `eleve.js` pings every 2 min, and pronotepy mirrors that
 (`_KeepAlive` in `pronoteAPI.py` posts `Navigation` with `{"onglet": 7, "ongletPrec": 7}` after
-110s of inactivity). At a 30-minute cadence the session is always long dead — which also
-explains the iPhone app re-authenticating after a few minutes idle.
+110s idle). At a 30-minute cadence the stored session is always long dead — which also explains
+the iPhone app re-authenticating after a few minutes idle.
 
-**Keeping the session alive is the wrong trade.** A ping every ~2 minutes is ~720 requests/day
-versus 27 logins/day, and it would require a resident daemon — the app is deliberately
-short-lived and cron-driven. More traffic, more bot-like, worse.
+**Keeping the session alive would have been the wrong trade.** A ping every ~2 min is ~720
+requests/day versus 27 logins/day, and it needs a resident daemon; the app is deliberately
+short-lived and cron-driven. Revisit only if the cadence ever drops below ~5 minutes.
 
-**Sketch (the actual win)**: the probe is a wasted HTTP round trip plus a `RateLimiter.await()`
-on every single run, and it always fails. Skip it when `session.json`'s `createdAt` is older
-than a short TTL (~3 min) and go straight to login. Saves one request per run and removes the
-misleading log line. Keep the probe for the rare back-to-back invocation where reuse can work.
+Fixed by taking the actual win instead:
 
-Only revisit keep-alive if the cadence ever drops below ~5 minutes, where the arithmetic flips.
+- `SessionStore.shouldProbe` gates the probe on `PronoteSession.secondsSinceLastUse` against the
+  new `safety.sessionProbeMaxAgeSeconds` (default 120, matching Pronote's real idle timeout; `0`
+  disables probing entirely). One less request per run, and the misleading log line is gone —
+  it now reads `Stored session is 1854s old (probe limit: 120s) — logging in without probing.`
+- The probe is kept for the back-to-back case, and **it now actually works.** Investigating this
+  turned up a second reason reuse could never succeed: the session was persisted once, right
+  after login, so the file kept its post-login order counter while the run went on consuming
+  values (observed on a real run: 9 in the file, 29 by the end). Every counter value the file
+  offered had already been spent, so the server would reject a restored session regardless of its
+  age. `runFetch` now saves again after the last Pronote request (step 7b), which captures the
+  advanced counter and stamps the new `lastUsedAt` field that the age check reads.
+- `lastUsedAt` measures time since the session was last *used*, not since login. Sessions written
+  before the field existed fall back to `createdAt`; a session with neither timestamp reports
+  `Long.MAX_VALUE` so it can never look fresh.
 
 ---
 

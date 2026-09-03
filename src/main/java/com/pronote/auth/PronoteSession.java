@@ -2,6 +2,7 @@ package com.pronote.auth;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -42,6 +43,13 @@ public class PronoteSession {
 
     /** When this session was created */
     private Instant createdAt = Instant.now();
+
+    /**
+     * When this session was last written to disk, which is the last point at which it was known to
+     * be in use. Null for sessions persisted before this field existed — callers fall back to
+     * {@link #createdAt}. Set by {@code SessionStore.save}, not by the authenticator.
+     */
+    private Instant lastUsedAt;
 
     /** The root URL of the Pronote instance this session belongs to */
     private String baseUrl;
@@ -150,6 +158,20 @@ public class PronoteSession {
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+
+    public Instant getLastUsedAt() { return lastUsedAt; }
+    public void setLastUsedAt(Instant lastUsedAt) { this.lastUsedAt = lastUsedAt; }
+
+    /**
+     * Seconds since this session was last known to be in use. Falls back to the creation time for
+     * sessions persisted before {@code lastUsedAt} existed, and to {@link Long#MAX_VALUE} when
+     * neither timestamp is present (an unusable session should never look fresh).
+     */
+    public long secondsSinceLastUse(Instant now) {
+        Instant reference = lastUsedAt != null ? lastUsedAt : createdAt;
+        if (reference == null) return Long.MAX_VALUE;
+        return Math.max(0, Duration.between(reference, now).getSeconds());
+    }
 
     public String getBaseUrl() { return baseUrl; }
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }

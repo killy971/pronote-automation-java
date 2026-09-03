@@ -46,6 +46,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.TemporalAdjusters;
@@ -299,6 +300,12 @@ public class Main {
             AttachmentDownloader attachmentDownloader = new AttachmentDownloader(httpClient, session, attachmentsDir);
             attachmentDownloader.processAttachments(assignments);
         }
+
+        // ---- 7b. Persist the session now that the last Pronote request is done ----
+        // Saving again here stamps lastUsedAt and captures the order counter the run advanced.
+        // Without it the stored counter stays at its post-login value, which the server has
+        // already consumed — so even a back-to-back run could never reuse the session.
+        sessionStore.save(session);
 
         // ---- 8. Write persistent diff report (always) ---------------------
         DiffReporter reporter = new DiffReporter(dataDir);
@@ -750,13 +757,24 @@ public class Main {
                                                   SessionStore sessionStore, LockoutGuard lockoutGuard) {
         Optional<PronoteSession> existing = sessionStore.load();
         if (existing.isPresent()) {
-            log.info("Found existing session, probing...");
-            if (httpClient.probe(existing.get())) {
-                log.info("Session reuse successful — skipping login.");
-                return existing.get();
+            Instant now = Instant.now();
+            int maxAge = config.getSafety().getSessionProbeMaxAgeSeconds();
+            long age = existing.get().secondsSinceLastUse(now);
+            if (SessionStore.shouldProbe(existing.get(), now, maxAge)) {
+                log.info("Found existing session ({}s old), probing...", age);
+                if (httpClient.probe(existing.get())) {
+                    log.info("Session reuse successful — skipping login.");
+                    return existing.get();
+                }
+                log.info("Session probe failed — performing fresh login.");
+                sessionStore.delete();
+            } else {
+                // Pronote drops an idle session after ~2 minutes, so at this job's 30-minute
+                // cadence the probe was a guaranteed-to-fail request (plus a rate-limiter wait)
+                // on every single run, and it logged a misleading "probe failed" line.
+                log.info("Stored session is {}s old (probe limit: {}s) — logging in without probing.",
+                        age, maxAge);
             }
-            log.info("Session probe failed — performing fresh login.");
-            sessionStore.delete();
         }
 
         long waitSeconds = lockoutGuard.secondsUntilNextAttemptAllowed(config.getSafety().getMinLoginIntervalSeconds());

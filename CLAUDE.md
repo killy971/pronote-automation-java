@@ -149,8 +149,11 @@ direct re-encrypt. A server upgrade flips this mid-year with no warning — the 
 work. See [pronotepy#346](https://github.com/bain3/pronotepy/issues/346). Both variants are pinned
 by `PronoteAuthenticatorChallengeTest`.
 
-**Session reuse**: On startup, the app tries to reload `session.json` and probe with a
-cheap call. If the probe succeeds, no login is performed.
+**Session reuse**: On startup, the app reloads `session.json` and — *only if it was last used
+within `safety.sessionProbeMaxAgeSeconds`* (default 120) — probes it with a cheap call. If the
+probe succeeds, no login is performed. Pronote drops an idle session after about two minutes, so
+at this job's 15/30-minute cadence the probe could never succeed and was a guaranteed-to-fail
+request plus a rate-limiter wait on every run. See the Session Reuse section below.
 
 ---
 
@@ -175,7 +178,19 @@ cheap call. If the probe succeeds, no login is performed.
 - Never add retry loops around `PronoteAuthenticator.login()`.
 
 ### Session Reuse
-- Always attempt session reuse before login.
+- Attempt session reuse before login, but only when the stored session is still plausibly alive:
+  `SessionStore.shouldProbe` gates the probe on `PronoteSession.secondsSinceLastUse` against
+  `safety.sessionProbeMaxAgeSeconds` (default 120, `0` disables probing entirely).
+- **Pronote's server-side idle timeout is about two minutes.** Its own `eleve.js` pings every
+  2 min, and pronotepy's `_KeepAlive` does so after 110s idle. Reuse can therefore only ever
+  succeed for a back-to-back invocation — manual testing, a retried run — never across a normal
+  cron interval. Do not "fix" reuse by adding a keep-alive daemon: at ~720 pings/day versus 27
+  logins/day it is more traffic and more bot-like, and it contradicts the short-lived CLI design.
+- `runFetch` saves the session a **second** time, right after the last Pronote request
+  (step 7b). This stamps `lastUsedAt` and captures the order counter the run advanced to.
+  Without it the file keeps its post-login counter, every value of which the server has already
+  consumed — so a reused session would be rejected outright and the probe could never succeed
+  even back-to-back.
 - `SessionStore` saves AES key material — set file permissions to 600 on POSIX systems.
 
 ### ENT/SSO Detection

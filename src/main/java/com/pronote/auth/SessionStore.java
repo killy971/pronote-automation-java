@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
@@ -56,10 +57,33 @@ public class SessionStore {
     }
 
     /**
+     * Decides whether probing a stored session is worth an HTTP round trip.
+     *
+     * <p>Pronote expires an idle session server-side after about two minutes — its own
+     * {@code eleve.js} pings every 2 min, and pronotepy's {@code _KeepAlive} does so after 110s.
+     * At this job's 30-minute cadence the stored session is therefore always long dead, so the
+     * probe was a guaranteed-to-fail request plus a {@code RateLimiter.await()} on every run.
+     * Probing still pays off for a back-to-back invocation (manual testing, a retried run), which
+     * is the only case where reuse can actually succeed.
+     *
+     * @param maxAgeSeconds age beyond which the session is assumed dead; {@code <= 0} never probes
+     */
+    public static boolean shouldProbe(PronoteSession session, Instant now, int maxAgeSeconds) {
+        if (maxAgeSeconds <= 0) return false;
+        return session.secondsSinceLastUse(now) <= maxAgeSeconds;
+    }
+
+    /**
      * Persists the session to disk. Sets file permissions to owner-read-write (600).
+     *
+     * <p>Stamps {@code lastUsedAt} so the age check above measures time since the session was last
+     * actually used, not time since login. Callers therefore save again once the run's final
+     * Pronote request is done — which also captures the run's advanced order counter, without
+     * which a reused session would be rejected outright.
      */
     public void save(PronoteSession session) {
         try {
+            session.setLastUsedAt(Instant.now());
             Files.createDirectories(sessionFile.getParent());
             mapper.writerWithDefaultPrettyPrinter().writeValue(sessionFile.toFile(), session);
             try {

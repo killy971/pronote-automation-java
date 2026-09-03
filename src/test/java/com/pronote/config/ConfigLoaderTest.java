@@ -53,6 +53,7 @@ class ConfigLoaderTest {
         assertEquals(2000L, cfg.getSafety().getMinDelayMs());
         assertEquals(3, cfg.getSafety().getMaxLoginFailures());
         assertEquals(360, cfg.getSafety().getLockoutCooldownMinutes());
+        assertEquals(120, cfg.getSafety().getSessionProbeMaxAgeSeconds());
         // notifications default to disabled
         assertFalse(cfg.getNotifications().getNtfy().isEnabled());
         assertFalse(cfg.getNotifications().getEmail().isEnabled());
