@@ -112,6 +112,25 @@ login attempt.
 
 ---
 
+### 9. `--features timetable` on its own returns zero lessons
+
+`PageEmploiDuTemps` returns no `ListeCours` key at all — for every requested week — unless the
+assignments fetch (`PageCahierDeTexte`, onglet 88) has already run in the same session. Confirmed
+three times on 2026-09-03, with both a fresh login and a reused session; the same code path in a
+full run fetches 132 entries.
+
+Scheduled runs are unaffected because they enable all features, but `--mode fetch --features
+timetable` silently writes an **empty** timetable snapshot, which is a data-loss shape: the diff
+would report every lesson removed. `--features` exists precisely to make a narrow run cheap, so
+this makes the flag unsafe for the type most worth fetching alone.
+
+**Sketch**: find what the assignments call leaves behind — most likely Pronote wants the tab
+"opened" first. pronotepy sends `Navigation` (`{"onglet": N, "ongletPrec": N}`) when switching
+tabs; issuing that for onglet 16 before `PageEmploiDuTemps` is the first thing to try. Failing
+that, refuse the combination rather than writing an empty snapshot.
+
+---
+
 ### General docs hygiene
 
 `manual-entries.yaml.example` is committed to a public repo, so its teacher names are now placeholders (`SYN_TEACHER_*`); the real subject/teacher mapping lives in the gitignored `config.yaml`. Both go stale as teachers change — re-verify the raw subject strings and the example `periodName` values each school year, and remember that enrichment matching is exact and case-sensitive, so a near-miss fails silently.

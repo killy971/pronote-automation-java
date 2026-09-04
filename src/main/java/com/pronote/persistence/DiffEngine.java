@@ -48,8 +48,12 @@ public class DiffEngine {
         }
     }
 
-    /** Mixin that suppresses the locally-derived enrichedSubject from diff comparison. */
-    @JsonIgnoreProperties({"enrichedSubject"})
+    /**
+     * Mixin that suppresses presentation-only fields from diff comparison: the locally-derived
+     * enrichedSubject, and the colour Pronote assigns to a lesson. A school recolouring a subject
+     * would otherwise mark every affected lesson "modified" and notify once per item.
+     */
+    @JsonIgnoreProperties({"enrichedSubject", "color"})
     private abstract static class EnrichedSubjectDiffMixin {}
 
     /** Mixin that suppresses runtime/transient fields from diff comparison. */

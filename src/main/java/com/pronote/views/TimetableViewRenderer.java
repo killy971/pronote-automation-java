@@ -49,6 +49,11 @@ public class TimetableViewRenderer {
     private final AppConfig.TimetableViewConfig viewConfig;
     private final TimetableHtmlGenerator generator = new TimetableHtmlGenerator();
 
+    /** Applies the configured subject-colour source to the generator. */
+    public void setColorResolver(SubjectColorResolver colors) {
+        generator.setColorResolver(colors);
+    }
+
     public TimetableViewRenderer(AppConfig.TimetableViewConfig viewConfig) {
         this.viewConfig = viewConfig;
     }

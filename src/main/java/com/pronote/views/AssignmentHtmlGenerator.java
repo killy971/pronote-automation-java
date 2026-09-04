@@ -46,11 +46,13 @@ public class AssignmentHtmlGenerator {
     }
 
     /** Accent palette — same as timetable views; colour index = {@code abs(subject.hashCode()) % 12}. */
-    private static final String[] ACCENT_COLORS = {
-        "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
-        "#ec4899", "#14b8a6", "#f97316", "#06b6d4", "#84cc16",
-        "#a855f7", "#6366f1"
-    };
+    /** Resolves each subject's accent colour; see {@link SubjectColorResolver}. */
+    private SubjectColorResolver colors = SubjectColorResolver.paletteOnly();
+
+    /** Overrides the default palette-only resolver. */
+    public void setColorResolver(SubjectColorResolver colors) {
+        if (colors != null) this.colors = colors;
+    }
 
     private static final DateTimeFormatter DATE_HEADER_FMT =
         DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.FRENCH);
@@ -239,12 +241,12 @@ public class AssignmentHtmlGenerator {
 
     private String renderSubjectGroup(String subject, List<Assignment> assignments,
                                        List<EvalEntry> evals, Path outputDir) {
-        String color = ACCENT_COLORS[Math.abs(subject.hashCode()) % ACCENT_COLORS.length];
+        String accentStyle = colors.styleAttr(subject);
         StringBuilder sb = new StringBuilder();
 
         sb.append("        <div class=\"subject-group\">\n");
-        sb.append("          <div class=\"subject-group__header\" style=\"border-left-color:")
-            .append(color).append("\">\n");
+        sb.append("          <div class=\"subject-group__header\" style=\"")
+            .append(accentStyle).append("\">\n");
         sb.append("            <span class=\"subject-group__name\">").append(esc(subject)).append("</span>\n");
         sb.append("          </div>\n");
 
@@ -427,6 +429,16 @@ public class AssignmentHtmlGenerator {
             --attach-bg:      #0c1f40; --attach-fg:     #93c5fd;
             --attach-border:  #1e3a5f;
           }
+        }
+
+        /* ----- Subject accent -----
+           Each card carries --accent (light theme) and --accent-dark (dark theme) inline; the
+           rules below pick the right one, so one markup path serves both themes with no JS.
+           Colours come from SubjectColorResolver, which nudges any value that would be
+           invisible against that theme's card background. */
+        .subject-group__header { border-left-color: var(--accent); }
+        @media (prefers-color-scheme: dark) {
+          .subject-group__header { border-left-color: var(--accent-dark); }
         }
 
         /* ----- Reset ----- */

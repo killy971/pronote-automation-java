@@ -61,6 +61,43 @@ class TimetableScraperParseTest {
     }
 
     @Test
+    void parse_mapsCouleurFond_asTheSubjectColor() throws Exception {
+        String json = """
+            {
+              "ListeCours": [
+                {"V": {
+                  "DateDuCours": {"V": "06/05/2030 08:00:00"},
+                  "duree": 4,
+                  "CouleurFond": "#EC6719",
+                  "ListeContenus": {"V": [{"G": 16, "L": "SYN_MATHS"}]}
+                }}
+              ]
+            }
+            """;
+        List<TimetableEntry> out = scraper().parseTimetable(MAPPER.readTree(json), null);
+        assertEquals("#EC6719", out.get(0).getColor());
+    }
+
+    @Test
+    void parse_missingCouleurFond_leavesColorNull() throws Exception {
+        // pronotepy treats the field as optional, so an instance that omits it must still parse;
+        // the views then fall back to the built-in palette.
+        String json = """
+            {
+              "ListeCours": [
+                {"V": {
+                  "DateDuCours": {"V": "06/05/2030 08:00:00"},
+                  "duree": 4,
+                  "ListeContenus": {"V": [{"G": 16, "L": "SYN_MATHS"}]}
+                }}
+              ]
+            }
+            """;
+        List<TimetableEntry> out = scraper().parseTimetable(MAPPER.readTree(json), null);
+        assertNull(out.get(0).getColor());
+    }
+
+    @Test
     void parse_cancelledEntry_setsStatusAndLabel() throws Exception {
         String json = """
             {

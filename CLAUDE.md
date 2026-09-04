@@ -380,7 +380,43 @@ compared.
 CSS lives inside each generator class as a static text-block `CSS` constant, embedded verbatim into every generated file.
 - Light/dark mode: `prefers-color-scheme` media query with CSS custom properties — **no JS for theming**.
 - Responsive: `max-width: 480px` centred container; same layout works on mobile and desktop.
-- Subject accent colours: 12-colour palette; colour index = `abs(subject.hashCode()) % 12` — deterministic across runs and days.
+- Subject accent colours: see below. Each card carries `--accent` / `--accent-dark` inline and the
+  stylesheet picks per theme — no JS, and one markup path for both.
+
+### Subject accent colours
+
+`SubjectColorResolver` decides the coloured left border on every card. Three sources, most
+specific first:
+
+1. a `subjectColors.overrides` entry keyed on the **raw** Pronote subject string;
+2. Pronote's own per-lesson colour, when `subjectColors.source: official`;
+3. the built-in 12-colour palette, indexed by `abs(subject.hashCode()) % 12`.
+
+The palette is always the last fallback, so a manual entry — which has no Pronote colour — still
+gets a border.
+
+**Where the official colour comes from.** `TimetableScraper` reads `CouleurFond` off each
+`ListeCours` item into `TimetableEntry.color`. It costs no extra request: the field rides along in
+a response we already fetch. It is **excluded from `DiffEngine`** (same mixin as
+`enrichedSubject`) because a school recolouring a subject is not a change worth a notification per
+lesson.
+
+Only the timetable carries colours, so `Main.colorResolver(config, timetable)` builds the resolver
+from the timetable list and hands the same instance to the assignment and evaluation renderers —
+that is what keeps an assignment card the same colour as its lesson.
+
+**Two colours per subject, not one.** Schools pick colours against Pronote's white background, so
+they are not all usable on both themes. Measured on this instance: `MATHEMATIQUES` is `#FFED00`
+(1.07:1 on white — invisible) and `MUSIQUE` is `#212853` (1.26:1 on the dark card — invisible).
+`ensureContrast` steps a colour towards white or black until it clears 3:1 against that theme's
+`--surface`, preserving hue; colours that already pass are returned untouched. 10 of this
+instance's 14 subjects need adjusting in exactly one theme.
+
+Note that the **built-in palette had the same problem** and is now corrected too — `#06b6d4`
+renders as `#059bb4` on the light theme.
+
+A rule change here needs no re-fetch, but **switching `source` to `official` does**: the colour is
+only written to the snapshot by a `fetch` run. `make views` alone shows the palette until then.
 
 ### Modifying the views
 

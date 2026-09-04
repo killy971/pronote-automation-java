@@ -37,6 +37,14 @@ public class TimetableEntry implements Identifiable {
     /** Free-text memo attached to the lesson by the teacher.
      *  Comes from the {@code memo} field in the Pronote timetable response. Null when absent. */
     private String memo;
+
+    /**
+     * The colour Pronote itself assigns to this lesson ({@code CouleurFond}), as {@code #rrggbb}.
+     * Null for manual entries and for instances that omit the field. Rendered only when
+     * {@code subjectColors.source} is {@code official}; excluded from diff comparison, since a
+     * school recolouring a subject is not a change the user needs a notification about.
+     */
+    private String color;
     public TimetableEntry() {}
 
     @Override
@@ -78,6 +86,9 @@ public class TimetableEntry implements Identifiable {
 
     public String getMemo() { return memo; }
     public void setMemo(String memo) { this.memo = memo; }
+
+    public String getColor() { return color; }
+    public void setColor(String color) { this.color = color; }
 
     @Override
     public boolean equals(Object o) {

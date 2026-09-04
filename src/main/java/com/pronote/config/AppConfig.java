@@ -1,7 +1,9 @@
 package com.pronote.config;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Root configuration POJO. Populated by SnakeYAML from config.yaml.
@@ -14,6 +16,7 @@ public class AppConfig {
     private NotificationsConfig notifications = new NotificationsConfig();
     private FeaturesConfig features = new FeaturesConfig();
     private SubjectEnrichmentConfig subjectEnrichment = new SubjectEnrichmentConfig();
+    private SubjectColorsConfig subjectColors = new SubjectColorsConfig();
     private TimetableViewConfig timetableView = new TimetableViewConfig();
     private AssignmentViewConfig assignmentView = new AssignmentViewConfig();
     private EvaluationViewConfig evaluationView = new EvaluationViewConfig();
@@ -42,6 +45,9 @@ public class AppConfig {
 
     public SubjectEnrichmentConfig getSubjectEnrichment() { return subjectEnrichment; }
     public void setSubjectEnrichment(SubjectEnrichmentConfig subjectEnrichment) { this.subjectEnrichment = subjectEnrichment; }
+
+    public SubjectColorsConfig getSubjectColors() { return subjectColors; }
+    public void setSubjectColors(SubjectColorsConfig subjectColors) { this.subjectColors = subjectColors; }
 
     public TimetableViewConfig getTimetableView() { return timetableView; }
     public void setTimetableView(TimetableViewConfig timetableView) { this.timetableView = timetableView; }
@@ -245,6 +251,45 @@ public class AppConfig {
 
         public String getTo() { return to; }
         public void setTo(String to) { this.to = to; }
+    }
+
+    /**
+     * Chooses where a subject's accent colour comes from.
+     *
+     * <p>YAML example:
+     * <pre>
+     * subjectColors:
+     *   # "official" uses the colour Pronote itself assigns to each lesson (CouleurFond), so the
+     *   # views match the website and the mobile app. "palette" (default) keeps the built-in
+     *   # 12-colour palette indexed by subject-name hash.
+     *   source: official
+     *   # Per-subject overrides win over both sources. Keyed by the RAW Pronote subject string
+     *   # (the same exact, case-sensitive spelling subjectEnrichment matches on).
+     *   overrides:
+     *     "SCIENCES VIE&amp; TERRE": "#2e7d32"
+     * </pre>
+     *
+     * <p>Official colours are picked by the school against a white background, so some are too
+     * pale to see on the light theme and some too dark to see on the dark one. Each colour is
+     * therefore nudged per theme until it clears a minimum contrast against that theme's card
+     * background, preserving hue so it still reads as the Pronote colour.
+     */
+    public static class SubjectColorsConfig {
+        /** {@code palette} (default) or {@code official}. */
+        private String source = "palette";
+        /** Raw Pronote subject to {@code #rrggbb}; wins over both sources. */
+        private Map<String, String> overrides = new LinkedHashMap<>();
+
+        public String getSource() { return source; }
+        public void setSource(String source) { this.source = source; }
+
+        public Map<String, String> getOverrides() { return overrides; }
+        public void setOverrides(Map<String, String> overrides) {
+            this.overrides = overrides != null ? overrides : new LinkedHashMap<>();
+        }
+
+        /** True when Pronote's own per-lesson colour should be preferred. */
+        public boolean isOfficial() { return "official".equalsIgnoreCase(source); }
     }
 
     /**

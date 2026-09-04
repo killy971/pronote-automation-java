@@ -209,6 +209,13 @@ public class TimetableScraper {
             e.setStartTime(parseDatetime(dateStr));
         }
 
+        // Pronote's own colour for this lesson, as "#rrggbb". Present on every entry on the
+        // instances seen so far, but pronotepy treats it as optional, so do not require it.
+        String couleurFond = getString(data, "CouleurFond", "");
+        if (!couleurFond.isBlank()) {
+            e.setColor(couleurFond);
+        }
+
         // ID: N is session-specific and changes on every API call, so use content-based identity.
         // subject + startTime uniquely identifies a scheduled lesson across runs.
         // (populated after ListeContenus is parsed below — set at end of method)

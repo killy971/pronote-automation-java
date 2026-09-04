@@ -77,6 +77,23 @@ notifications:
     from: "you@gmail.com"
     to: "recipient@example.com"
 
+# Where each subject's accent colour (the coloured left border on cards) comes from.
+subjectColors:
+  # palette  → built-in 12-colour palette, indexed by subject-name hash (default)
+  # official → the colour Pronote itself assigns to each lesson (CouleurFond), so the views
+  #            match the Pronote website and mobile app. Falls back to the palette for any
+  #            subject Pronote gives no colour for, and for manual entries.
+  source: palette
+  # Per-subject overrides win over both sources. Key on the RAW Pronote subject string —
+  # the same exact, case-sensitive spelling subjectEnrichment matches on.
+  # overrides:
+  #   "SCIENCES VIE& TERRE": "#2e7d32"
+  #
+  # Note: schools pick these colours against Pronote's white background, so some are too pale
+  # to see on the light theme and some too dark to see on the dark one. Each colour is nudged
+  # per theme until it clears a 3:1 contrast ratio against that theme's card background; the
+  # hue is preserved, and colours that already pass are left exactly as the school set them.
+
 timetableView:
   # Generate static HTML pages for the upcoming N weekdays after each timetable fetch.
   # Files are written to outputDirectory: one YYYY-MM-DD.html per day, plus index.html.

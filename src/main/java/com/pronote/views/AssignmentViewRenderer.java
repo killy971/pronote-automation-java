@@ -32,6 +32,11 @@ public class AssignmentViewRenderer {
         this.generator = new AssignmentHtmlGenerator(viewConfig.getNewBadgeDays());
     }
 
+    /** Applies the configured subject-colour source to the generator. */
+    public void setColorResolver(SubjectColorResolver colors) {
+        generator.setColorResolver(colors);
+    }
+
     /**
      * Generates the assignment HTML view and writes it to the configured output directory.
      *

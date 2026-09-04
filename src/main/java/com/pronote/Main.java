@@ -35,6 +35,7 @@ import com.pronote.views.EvaluationViewRenderer;
 import com.pronote.views.GitPublisher;
 import com.pronote.views.PortalIndexHtmlGenerator;
 import com.pronote.views.SchoolLifeViewRenderer;
+import com.pronote.views.SubjectColorResolver;
 import com.pronote.views.TimetableViewRenderer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -339,22 +340,29 @@ public class Main {
         if (features.isEvaluations())  snapshotStore.saveSnapshot("evaluations", evaluations);
         if (features.isSchoolLife())   snapshotStore.saveSnapshot("school-life", schoolLife);
 
+        SubjectColorResolver colors = colorResolver(config, timetable);
+
         // ---- 10. Generate static HTML timetable views ---------------------
         if (features.isTimetable() && config.getTimetableView().isEnabled()) {
             log.info("Generating timetable HTML views...");
-            new TimetableViewRenderer(config.getTimetableView()).render(timetable, assignments);
+            TimetableViewRenderer renderer = new TimetableViewRenderer(config.getTimetableView());
+            renderer.setColorResolver(colors);
+            renderer.render(timetable, assignments);
         }
 
         // ---- 11. Generate static HTML assignment view ---------------------
         if (features.isAssignments() && config.getAssignmentView().isEnabled()) {
             log.info("Generating assignment HTML view...");
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments, timetable);
+            AssignmentViewRenderer renderer = new AssignmentViewRenderer(config.getAssignmentView());
+            renderer.setColorResolver(colors);
+            renderer.render(assignments, timetable);
         }
 
         // ---- 12. Generate static HTML evaluation view --------------------
         if (features.isEvaluations() && config.getEvaluationView().isEnabled()) {
             log.info("Generating evaluation HTML views...");
             EvaluationViewRenderer evalRenderer = new EvaluationViewRenderer(config.getEvaluationView());
+            evalRenderer.setColorResolver(colors);
             evalRenderer.render(evaluations);
             evalRenderer.renderSummary(evaluations);
         }
@@ -467,7 +475,9 @@ public class Main {
                         + " — run 'make run' first to fetch data.");
             }
             log.info("Regenerating timetable views from snapshot ({} entries)...", timetableData.size());
-            new TimetableViewRenderer(config.getTimetableView()).render(timetableData, assignmentsData);
+            TimetableViewRenderer renderer = new TimetableViewRenderer(config.getTimetableView());
+            renderer.setColorResolver(colorResolver(config, timetableData));
+            renderer.render(timetableData, assignmentsData);
         }
 
         if (assignmentViewEnabled) {
@@ -477,7 +487,9 @@ public class Main {
                         + " — run 'make run' first to fetch data.");
             }
             log.info("Regenerating assignment view from snapshot ({} entries)...", assignmentsData.size());
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignmentsData, timetableData);
+            AssignmentViewRenderer renderer = new AssignmentViewRenderer(config.getAssignmentView());
+            renderer.setColorResolver(colorResolver(config, timetableData));
+            renderer.render(assignmentsData, timetableData);
         }
 
         if (evaluationViewEnabled) {
@@ -494,6 +506,7 @@ public class Main {
                 evaluationsData.forEach(e -> e.setEnrichedSubject(enricher.enrich(e.getSubject(), e.getTeacher())));
                 log.info("Regenerating evaluation views from snapshot ({} entries)...", evaluationsData.size());
                 EvaluationViewRenderer evalRenderer = new EvaluationViewRenderer(config.getEvaluationView());
+                evalRenderer.setColorResolver(colorResolver(config, timetableData));
                 evalRenderer.render(evaluationsData);
                 evalRenderer.renderSummary(evaluationsData);
             }
@@ -642,19 +655,26 @@ public class Main {
             }
         }
 
+        SubjectColorResolver diffColors = colorResolver(config, timetable);
+
         if (features.isTimetable() && config.getTimetableView().isEnabled() && !timetable.isEmpty()) {
             log.info("Regenerating timetable HTML views...");
-            new TimetableViewRenderer(config.getTimetableView()).render(timetable, assignments);
+            TimetableViewRenderer renderer = new TimetableViewRenderer(config.getTimetableView());
+            renderer.setColorResolver(diffColors);
+            renderer.render(timetable, assignments);
         }
 
         if (features.isAssignments() && config.getAssignmentView().isEnabled() && !assignments.isEmpty()) {
             log.info("Regenerating assignment HTML view...");
-            new AssignmentViewRenderer(config.getAssignmentView()).render(assignments, timetable);
+            AssignmentViewRenderer renderer = new AssignmentViewRenderer(config.getAssignmentView());
+            renderer.setColorResolver(diffColors);
+            renderer.render(assignments, timetable);
         }
 
         if (features.isEvaluations() && config.getEvaluationView().isEnabled() && !evaluations.isEmpty()) {
             log.info("Regenerating evaluation HTML views...");
             EvaluationViewRenderer evalRenderer = new EvaluationViewRenderer(config.getEvaluationView());
+            evalRenderer.setColorResolver(diffColors);
             evalRenderer.render(evaluations);
             evalRenderer.renderSummary(evaluations);
         }
@@ -747,6 +767,15 @@ public class Main {
         } else {
             log.warn("Manual entries valid — {} warning(s); review the subject strings above.", warnings);
         }
+    }
+
+    /**
+     * Builds the subject-colour resolver for a render pass. Pronote's own colours ride on the
+     * timetable entries, so the timetable list is the source for every view — that keeps an
+     * assignment card the same colour as the lesson it belongs to.
+     */
+    private static SubjectColorResolver colorResolver(AppConfig config, List<TimetableEntry> timetable) {
+        return SubjectColorResolver.from(config.getSubjectColors(), timetable);
     }
 
     // -------------------------------------------------------------------------

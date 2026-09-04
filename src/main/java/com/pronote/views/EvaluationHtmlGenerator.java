@@ -34,11 +34,13 @@ import java.util.Locale;
  */
 public class EvaluationHtmlGenerator {
 
-    static final String[] ACCENT_COLORS = {
-        "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
-        "#ec4899", "#14b8a6", "#f97316", "#06b6d4", "#84cc16",
-        "#a855f7", "#6366f1"
-    };
+    /** Resolves each subject's accent colour; see {@link SubjectColorResolver}. */
+    SubjectColorResolver colors = SubjectColorResolver.paletteOnly();
+
+    /** Overrides the default palette-only resolver. */
+    public void setColorResolver(SubjectColorResolver colors) {
+        if (colors != null) this.colors = colors;
+    }
 
     private static final DateTimeFormatter SHORT_DATE_FMT =
         DateTimeFormatter.ofPattern("d MMM", Locale.FRENCH);
@@ -116,7 +118,7 @@ public class EvaluationHtmlGenerator {
 
     String renderCard(CompetenceEvaluation eval) {
         String subject = displaySubject(eval);
-        String color   = ACCENT_COLORS[Math.abs(subject.hashCode()) % ACCENT_COLORS.length];
+        String accentStyle = colors.styleAttr(subject);
         String dateStr = eval.getDate() != null ? eval.getDate().format(SHORT_DATE_FMT) : "";
 
         List<CompetenceAcquisition> ordered = eval.getAcquisitions() == null
@@ -126,7 +128,7 @@ public class EvaluationHtmlGenerator {
                 .toList();
 
         StringBuilder card = new StringBuilder();
-        card.append("      <div class=\"eval-card\" style=\"border-left-color:").append(color).append("\"")
+        card.append("      <div class=\"eval-card\" style=\"").append(accentStyle).append("\"")
             .append(" role=\"button\" tabindex=\"0\">\n");
 
         // ---- Visible card content ----
@@ -172,7 +174,7 @@ public class EvaluationHtmlGenerator {
      */
     String renderDetailPanel(CompetenceEvaluation eval) {
         String subject = displaySubject(eval);
-        String color   = ACCENT_COLORS[Math.abs(subject.hashCode()) % ACCENT_COLORS.length];
+        String accentStyle = colors.styleAttr(subject);
         String dateStr = eval.getDate() != null ? eval.getDate().format(SHORT_DATE_FMT) : "";
 
         List<CompetenceAcquisition> ordered = eval.getAcquisitions() == null
@@ -185,9 +187,9 @@ public class EvaluationHtmlGenerator {
         panel.append("        <div class=\"eval-detail\" hidden>\n");
 
         // Detail header: subject + name + date
-        panel.append("          <div class=\"eval-detail__header\" style=\"border-bottom-color:").append(color).append("\">\n");
+        panel.append("          <div class=\"eval-detail__header\" style=\"").append(accentStyle).append("\">\n");
         panel.append("            <div class=\"eval-detail__header-left\">\n");
-        panel.append("              <span class=\"eval-detail__subject\" style=\"color:").append(color).append("\">")
+        panel.append("              <span class=\"eval-detail__subject\">")
             .append(esc(subject)).append("</span>\n");
         if (eval.getName() != null && !eval.getName().isBlank()) {
             panel.append("              <span class=\"eval-detail__name\">").append(esc(eval.getName())).append("</span>\n");
@@ -388,6 +390,20 @@ public class EvaluationHtmlGenerator {
             --lvl-e:          #f87171;
             --lvl-ne-border:  #4a5068;
           }
+        }
+
+        /* ----- Subject accent -----
+           Each card carries --accent (light theme) and --accent-dark (dark theme) inline; the
+           rules below pick the right one, so one markup path serves both themes with no JS.
+           Colours come from SubjectColorResolver, which nudges any value that would be
+           invisible against that theme's card background. */
+        .eval-card { border-left-color: var(--accent); }
+        .eval-detail__header { border-bottom-color: var(--accent); }
+        .eval-detail__subject { color: var(--accent); }
+        @media (prefers-color-scheme: dark) {
+          .eval-card { border-left-color: var(--accent-dark); }
+          .eval-detail__header { border-bottom-color: var(--accent-dark); }
+          .eval-detail__subject { color: var(--accent-dark); }
         }
 
         /* ----- Reset ----- */

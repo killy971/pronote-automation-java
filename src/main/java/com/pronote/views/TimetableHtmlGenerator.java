@@ -32,12 +32,8 @@ import java.util.stream.Collectors;
  */
 public class TimetableHtmlGenerator {
 
-    /** Accent palette used as subject-coded left borders (deterministic by subject name hash). */
-    private static final String[] ACCENT_COLORS = {
-        "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
-        "#ec4899", "#14b8a6", "#f97316", "#06b6d4", "#84cc16",
-        "#a855f7", "#6366f1"
-    };
+    /** Resolves each subject's accent colour; see {@link SubjectColorResolver}. */
+    private SubjectColorResolver colors = SubjectColorResolver.paletteOnly();
 
     private static final DateTimeFormatter FULL_DATE_FMT =
         DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.FRENCH);
@@ -263,12 +259,12 @@ public class TimetableHtmlGenerator {
      */
     private String renderLessonSlot(MergedEntry me, List<Assignment> subjectAssignments) {
         TimetableEntry e = me.entry();
-        String color    = ACCENT_COLORS[Math.abs(e.getSubject().hashCode()) % ACCENT_COLORS.length];
+        String accentStyle = colors.styleAttr(e.getSubject());
         boolean cancelled = e.getStatus() == EntryStatus.CANCELLED
                          || e.getStatus() == EntryStatus.EXEMPTED;
 
         String cardClass   = cancelled ? "lesson lesson--cancelled" : "lesson";
-        String borderStyle = cancelled ? "" : " style=\"border-left-color:" + color + "\"";
+        String borderStyle = cancelled ? "" : " style=\"" + accentStyle + "\"";
 
         boolean showChip = subjectAssignments != null && !subjectAssignments.isEmpty();
         String subjectLabel = displaySubject(e);
@@ -444,9 +440,9 @@ public class TimetableHtmlGenerator {
         return "<time datetime=\"" + datetime + "\">" + display + "</time>";
     }
 
-    /** Returns the accent color for the given subject (deterministic). */
-    static String accentColor(String subject) {
-        return ACCENT_COLORS[Math.abs(subject.hashCode()) % ACCENT_COLORS.length];
+    /** Overrides the default palette-only resolver. */
+    public void setColorResolver(SubjectColorResolver colors) {
+        if (colors != null) this.colors = colors;
     }
 
     /** Returns the display name for a timetable entry: enrichedSubject if set, else subject. */
@@ -558,6 +554,16 @@ public class TimetableHtmlGenerator {
 
             --link-fg: #93c5fd;
           }
+        }
+
+        /* ----- Subject accent -----
+           Each card carries --accent (light theme) and --accent-dark (dark theme) inline; the
+           rules below pick the right one, so one markup path serves both themes with no JS.
+           Colours come from SubjectColorResolver, which nudges any value that would be
+           invisible against that theme's card background. */
+        .lesson { border-left-color: var(--accent); }
+        @media (prefers-color-scheme: dark) {
+          .lesson { border-left-color: var(--accent-dark); }
         }
 
         /* ----- Reset ----- */

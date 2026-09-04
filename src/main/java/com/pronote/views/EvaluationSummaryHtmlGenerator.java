@@ -37,6 +37,16 @@ public class EvaluationSummaryHtmlGenerator {
 
     private final EvaluationHtmlGenerator helper = new EvaluationHtmlGenerator();
 
+    /** Resolves each subject's accent colour; see {@link SubjectColorResolver}. */
+    private SubjectColorResolver colors = SubjectColorResolver.paletteOnly();
+
+    /** Overrides the default palette-only resolver. Also applied to the embedded detail panels. */
+    public void setColorResolver(SubjectColorResolver colors) {
+        if (colors == null) return;
+        this.colors = colors;
+        helper.setColorResolver(colors);
+    }
+
     // -------------------------------------------------------------------------
     // Public API
     // -------------------------------------------------------------------------
@@ -144,8 +154,7 @@ public class EvaluationSummaryHtmlGenerator {
             .filter(e -> Objects.equals(EvaluationHtmlGenerator.displaySubject(e), subject))
             .toList(); // already sorted date desc
 
-        String color = EvaluationHtmlGenerator.ACCENT_COLORS[
-            Math.abs(subject.hashCode()) % EvaluationHtmlGenerator.ACCENT_COLORS.length];
+        String accentStyle = colors.styleAttr(subject);
 
         // Collect unique, non-blank teacher names for this group
         String teachers = forSubject.stream()
@@ -162,8 +171,8 @@ public class EvaluationSummaryHtmlGenerator {
         sb.append("        <div class=\"subject-group\">\n");
 
         // Subject title (once, with accent colour)
-        sb.append("          <div class=\"subject-group__header\" style=\"border-left-color:").append(color).append("\">\n");
-        sb.append("            <span class=\"subject-group__title\" style=\"color:").append(color).append(";\">")
+        sb.append("          <div class=\"subject-group__header\" style=\"").append(accentStyle).append("\">\n");
+        sb.append("            <span class=\"subject-group__title\">")
             .append(EvaluationHtmlGenerator.esc(subject)).append("</span>\n");
         if (teachers != null) {
             sb.append("            <span class=\"subject-group__teacher\">")
@@ -365,6 +374,18 @@ public class EvaluationSummaryHtmlGenerator {
         .summary-main {
           display: flex;
           flex-direction: column;
+        }
+
+        /* ----- Subject accent -----
+           Each group carries --accent (light theme) and --accent-dark (dark theme) inline; the
+           rules below pick the right one, so one markup path serves both themes with no JS.
+           Colours come from SubjectColorResolver, which nudges any value that would be
+           invisible against that theme's card background. */
+        .subject-group__header { border-left-color: var(--accent); }
+        .subject-group__title { color: var(--accent); }
+        @media (prefers-color-scheme: dark) {
+          .subject-group__header { border-left-color: var(--accent-dark); }
+          .subject-group__title { color: var(--accent-dark); }
         }
 
         /* ----- Period section ----- */
