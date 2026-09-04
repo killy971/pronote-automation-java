@@ -556,15 +556,6 @@ public class TimetableHtmlGenerator {
           }
         }
 
-        /* ----- Subject accent -----
-           Each card carries --accent (light theme) and --accent-dark (dark theme) inline; the
-           rules below pick the right one, so one markup path serves both themes with no JS.
-           Colours come from SubjectColorResolver, which nudges any value that would be
-           invisible against that theme's card background. */
-        .lesson { border-left-color: var(--accent); }
-        @media (prefers-color-scheme: dark) {
-          .lesson { border-left-color: var(--accent-dark); }
-        }
 
         /* ----- Reset ----- */
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1022,6 +1013,19 @@ public class TimetableHtmlGenerator {
         .dialog__close:hover {
           background: var(--text-3);
           color: var(--text-1);
+        }
+        /* ----- Subject accent -----
+           Each card carries --accent (light theme) and --accent-dark (dark theme) inline; the
+           rules below pick the right one, so one markup path serves both themes with no JS.
+           Colours come from SubjectColorResolver, which nudges any value that would be
+           invisible against that theme's card background.
+
+           These rules MUST stay last: the component rules above set the border with the
+           `border-left` shorthand, which resets border-left-color to var(--border) — grey — and
+           would win on source order otherwise. */
+        .lesson { border-left-color: var(--accent); }
+        @media (prefers-color-scheme: dark) {
+          .lesson { border-left-color: var(--accent-dark); }
         }
         """;
 }

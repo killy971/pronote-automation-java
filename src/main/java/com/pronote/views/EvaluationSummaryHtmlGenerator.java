@@ -376,17 +376,6 @@ public class EvaluationSummaryHtmlGenerator {
           flex-direction: column;
         }
 
-        /* ----- Subject accent -----
-           Each group carries --accent (light theme) and --accent-dark (dark theme) inline; the
-           rules below pick the right one, so one markup path serves both themes with no JS.
-           Colours come from SubjectColorResolver, which nudges any value that would be
-           invisible against that theme's card background. */
-        .subject-group__header { border-left-color: var(--accent); }
-        .subject-group__title { color: var(--accent); }
-        @media (prefers-color-scheme: dark) {
-          .subject-group__header { border-left-color: var(--accent-dark); }
-          .subject-group__title { color: var(--accent-dark); }
-        }
 
         /* ----- Period section ----- */
         .period-section {
@@ -512,6 +501,21 @@ public class EvaluationSummaryHtmlGenerator {
         .subject-avg__badge {
           flex-shrink: 0;
           cursor: default;
+        }
+        /* ----- Subject accent -----
+           Each card carries --accent (light theme) and --accent-dark (dark theme) inline; the
+           rules below pick the right one, so one markup path serves both themes with no JS.
+           Colours come from SubjectColorResolver, which nudges any value that would be
+           invisible against that theme's card background.
+
+           These rules MUST stay last: the component rules above set the border with the
+           `border-left` shorthand, which resets border-left-color to var(--border) — grey — and
+           would win on source order otherwise. */
+        .subject-group__header { border-left-color: var(--accent); }
+        .subject-group__title { color: var(--accent); }
+        @media (prefers-color-scheme: dark) {
+          .subject-group__header { border-left-color: var(--accent-dark); }
+          .subject-group__title { color: var(--accent-dark); }
         }
         """;
 }

@@ -392,19 +392,6 @@ public class EvaluationHtmlGenerator {
           }
         }
 
-        /* ----- Subject accent -----
-           Each card carries --accent (light theme) and --accent-dark (dark theme) inline; the
-           rules below pick the right one, so one markup path serves both themes with no JS.
-           Colours come from SubjectColorResolver, which nudges any value that would be
-           invisible against that theme's card background. */
-        .eval-card { border-left-color: var(--accent); }
-        .eval-detail__header { border-bottom-color: var(--accent); }
-        .eval-detail__subject { color: var(--accent); }
-        @media (prefers-color-scheme: dark) {
-          .eval-card { border-left-color: var(--accent-dark); }
-          .eval-detail__header { border-bottom-color: var(--accent-dark); }
-          .eval-detail__subject { color: var(--accent-dark); }
-        }
 
         /* ----- Reset ----- */
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -741,6 +728,23 @@ public class EvaluationHtmlGenerator {
           font-size: 0.8125rem;
           color: var(--text-3);
           line-height: 1.3;
+        }
+        /* ----- Subject accent -----
+           Each card carries --accent (light theme) and --accent-dark (dark theme) inline; the
+           rules below pick the right one, so one markup path serves both themes with no JS.
+           Colours come from SubjectColorResolver, which nudges any value that would be
+           invisible against that theme's card background.
+
+           These rules MUST stay last: the component rules above set the border with the
+           `border-left` shorthand, which resets border-left-color to var(--border) — grey — and
+           would win on source order otherwise. */
+        .eval-card { border-left-color: var(--accent); }
+        .eval-detail__header { border-bottom-color: var(--accent); }
+        .eval-detail__subject { color: var(--accent); }
+        @media (prefers-color-scheme: dark) {
+          .eval-card { border-left-color: var(--accent-dark); }
+          .eval-detail__header { border-bottom-color: var(--accent-dark); }
+          .eval-detail__subject { color: var(--accent-dark); }
         }
         """;
 }

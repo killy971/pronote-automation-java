@@ -431,15 +431,6 @@ public class AssignmentHtmlGenerator {
           }
         }
 
-        /* ----- Subject accent -----
-           Each card carries --accent (light theme) and --accent-dark (dark theme) inline; the
-           rules below pick the right one, so one markup path serves both themes with no JS.
-           Colours come from SubjectColorResolver, which nudges any value that would be
-           invisible against that theme's card background. */
-        .subject-group__header { border-left-color: var(--accent); }
-        @media (prefers-color-scheme: dark) {
-          .subject-group__header { border-left-color: var(--accent-dark); }
-        }
 
         /* ----- Reset ----- */
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -737,6 +728,19 @@ public class AssignmentHtmlGenerator {
             color: #666666;
             word-break: break-all;
           }
+        }
+        /* ----- Subject accent -----
+           Each card carries --accent (light theme) and --accent-dark (dark theme) inline; the
+           rules below pick the right one, so one markup path serves both themes with no JS.
+           Colours come from SubjectColorResolver, which nudges any value that would be
+           invisible against that theme's card background.
+
+           These rules MUST stay last: the component rules above set the border with the
+           `border-left` shorthand, which resets border-left-color to var(--border) — grey — and
+           would win on source order otherwise. */
+        .subject-group__header { border-left-color: var(--accent); }
+        @media (prefers-color-scheme: dark) {
+          .subject-group__header { border-left-color: var(--accent-dark); }
         }
         """;
 }
