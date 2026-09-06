@@ -37,9 +37,17 @@ public class EvaluationHtmlGenerator {
     /** Resolves each subject's accent colour; see {@link SubjectColorResolver}. */
     SubjectColorResolver colors = SubjectColorResolver.paletteOnly();
 
+    /** Resolves each subject's emoji; see {@link SubjectIconResolver}. Off unless configured. */
+    SubjectIconResolver icons = SubjectIconResolver.disabled();
+
     /** Overrides the default palette-only resolver. */
     public void setColorResolver(SubjectColorResolver colors) {
         if (colors != null) this.colors = colors;
+    }
+
+    /** Overrides the default no-icon resolver. */
+    public void setIconResolver(SubjectIconResolver icons) {
+        if (icons != null) this.icons = icons;
     }
 
     private static final DateTimeFormatter SHORT_DATE_FMT =
@@ -135,7 +143,8 @@ public class EvaluationHtmlGenerator {
 
         // Header: subject + date
         card.append("        <div class=\"eval-card__header\">\n");
-        card.append("          <span class=\"eval-card__subject\">").append(esc(subject)).append("</span>\n");
+        card.append("          <span class=\"eval-card__subject\">")
+            .append(icons.prefix(subject)).append(esc(subject)).append("</span>\n");
         if (!dateStr.isBlank()) {
             card.append("          <time class=\"eval-card__date\">").append(esc(dateStr)).append("</time>\n");
         }
@@ -190,7 +199,7 @@ public class EvaluationHtmlGenerator {
         panel.append("          <div class=\"eval-detail__header\" style=\"").append(accentStyle).append("\">\n");
         panel.append("            <div class=\"eval-detail__header-left\">\n");
         panel.append("              <span class=\"eval-detail__subject\">")
-            .append(esc(subject)).append("</span>\n");
+            .append(icons.prefix(subject)).append(esc(subject)).append("</span>\n");
         if (eval.getName() != null && !eval.getName().isBlank()) {
             panel.append("              <span class=\"eval-detail__name\">").append(esc(eval.getName())).append("</span>\n");
         }
@@ -746,5 +755,5 @@ public class EvaluationHtmlGenerator {
           .eval-detail__header { border-bottom-color: var(--accent-dark); }
           .eval-detail__subject { color: var(--accent-dark); }
         }
-        """;
+        """ + SubjectIconResolver.CSS;
 }

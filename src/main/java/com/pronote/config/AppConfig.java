@@ -17,6 +17,7 @@ public class AppConfig {
     private FeaturesConfig features = new FeaturesConfig();
     private SubjectEnrichmentConfig subjectEnrichment = new SubjectEnrichmentConfig();
     private SubjectColorsConfig subjectColors = new SubjectColorsConfig();
+    private SubjectIconsConfig subjectIcons = new SubjectIconsConfig();
     private TimetableViewConfig timetableView = new TimetableViewConfig();
     private AssignmentViewConfig assignmentView = new AssignmentViewConfig();
     private EvaluationViewConfig evaluationView = new EvaluationViewConfig();
@@ -48,6 +49,9 @@ public class AppConfig {
 
     public SubjectColorsConfig getSubjectColors() { return subjectColors; }
     public void setSubjectColors(SubjectColorsConfig subjectColors) { this.subjectColors = subjectColors; }
+
+    public SubjectIconsConfig getSubjectIcons() { return subjectIcons; }
+    public void setSubjectIcons(SubjectIconsConfig subjectIcons) { this.subjectIcons = subjectIcons; }
 
     public TimetableViewConfig getTimetableView() { return timetableView; }
     public void setTimetableView(TimetableViewConfig timetableView) { this.timetableView = timetableView; }
@@ -290,6 +294,40 @@ public class AppConfig {
 
         /** True when Pronote's own per-lesson colour should be preferred. */
         public boolean isOfficial() { return "official".equalsIgnoreCase(source); }
+    }
+
+
+    /**
+     * Emoji shown before a subject name in the generated views.
+     *
+     * <p>Off by default: an icon is a strong visual commitment, and a wrong one is worse than
+     * none. When {@code enabled}, {@link com.pronote.views.SubjectIconResolver} supplies a
+     * built-in icon for the subjects it recognises; {@code icons} entries win over it.
+     *
+     * <p>YAML example:
+     * <pre>
+     * subjectIcons:
+     *   enabled: true
+     *   icons:
+     *     "LCA LATIN": "\uD83C\uDFDB\uFE0F"
+     *     "VIE DE CLASSE": ""     # empty string = no icon for this subject
+     * </pre>
+     *
+     * Keys match the raw Pronote subject <em>or</em> its {@code enrichedSubject}, so either
+     * spelling works. An empty value suppresses the built-in icon for that subject.
+     */
+    public static class SubjectIconsConfig {
+        private boolean enabled = false;
+        /** Subject (raw or enriched) to emoji; an empty value means "no icon". */
+        private Map<String, String> icons = new LinkedHashMap<>();
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public Map<String, String> getIcons() { return icons; }
+        public void setIcons(Map<String, String> icons) {
+            this.icons = icons != null ? icons : new LinkedHashMap<>();
+        }
     }
 
     /**

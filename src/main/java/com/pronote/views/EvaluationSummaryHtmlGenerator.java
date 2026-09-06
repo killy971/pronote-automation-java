@@ -40,11 +40,21 @@ public class EvaluationSummaryHtmlGenerator {
     /** Resolves each subject's accent colour; see {@link SubjectColorResolver}. */
     private SubjectColorResolver colors = SubjectColorResolver.paletteOnly();
 
+    /** Resolves each subject's emoji; see {@link SubjectIconResolver}. Off unless configured. */
+    private SubjectIconResolver icons = SubjectIconResolver.disabled();
+
     /** Overrides the default palette-only resolver. Also applied to the embedded detail panels. */
     public void setColorResolver(SubjectColorResolver colors) {
         if (colors == null) return;
         this.colors = colors;
         helper.setColorResolver(colors);
+    }
+
+    /** Overrides the default no-icon resolver. Also applied to the embedded detail panels. */
+    public void setIconResolver(SubjectIconResolver icons) {
+        if (icons == null) return;
+        this.icons = icons;
+        helper.setIconResolver(icons);
     }
 
     // -------------------------------------------------------------------------
@@ -173,6 +183,7 @@ public class EvaluationSummaryHtmlGenerator {
         // Subject title (once, with accent colour)
         sb.append("          <div class=\"subject-group__header\" style=\"").append(accentStyle).append("\">\n");
         sb.append("            <span class=\"subject-group__title\">")
+            .append(icons.prefix(subject))
             .append(EvaluationHtmlGenerator.esc(subject)).append("</span>\n");
         if (teachers != null) {
             sb.append("            <span class=\"subject-group__teacher\">")
@@ -517,5 +528,5 @@ public class EvaluationSummaryHtmlGenerator {
           .subject-group__header { border-left-color: var(--accent-dark); }
           .subject-group__title { color: var(--accent-dark); }
         }
-        """;
+        """ + SubjectIconResolver.CSS;
 }

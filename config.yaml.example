@@ -94,6 +94,25 @@ subjectColors:
   # per theme until it clears a 3:1 contrast ratio against that theme's card background; the
   # hue is preserved, and colours that already pass are left exactly as the school set them.
 
+# An emoji before each subject name, in every view that shows one (timetable cards, assignment
+# groups, evaluation cards). Off by default: an icon is a strong visual commitment, and a wrong
+# one reads worse than none at all.
+subjectIcons:
+  enabled: false
+  # With `enabled: true` the built-in table already covers the usual French secondary subjects
+  # (see SubjectIconResolver): 📐 maths, ⚛️ physique-chimie, 🧪 chimie, 🌱 SVT, 🏰 histoire,
+  # 🌍 géographie, 📖 français, 📚 littérature, 🇺🇸 anglais, 🇪🇸 espagnol, 🏛️ latin/grec,
+  # 🎨 arts plastiques, 🎵 musique, ⚙️ technologie, 🏃 EPS, 🗣️ vie de classe, 🧭 accompagnement,
+  # 💻 NSI/SNT.
+  # A subject it does not recognise simply gets no icon.
+  #
+  # Entries below win over the built-in table. Key on the raw Pronote subject string or on its
+  # enrichedSubject — either spelling matches. An empty value suppresses the icon for that
+  # subject.
+  # icons:
+  #   "LCA LATIN": "🏺"
+  #   "VIE DE CLASSE": ""
+
 timetableView:
   # Generate static HTML pages for the upcoming N weekdays after each timetable fetch.
   # Files are written to outputDirectory: one YYYY-MM-DD.html per day, plus index.html.

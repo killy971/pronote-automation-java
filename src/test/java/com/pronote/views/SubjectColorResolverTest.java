@@ -23,6 +23,12 @@ class SubjectColorResolverTest {
         return e;
     }
 
+    private static TimetableEntry enriched(String subject, String enrichedSubject, String color) {
+        TimetableEntry e = entry(subject, color);
+        e.setEnrichedSubject(enrichedSubject);
+        return e;
+    }
+
     private static AppConfig.SubjectColorsConfig config(String source, Map<String, String> overrides) {
         AppConfig.SubjectColorsConfig c = new AppConfig.SubjectColorsConfig();
         c.setSource(source);
@@ -46,6 +52,44 @@ class SubjectColorResolverTest {
                 config("palette", Map.of()), List.of(entry("SYN_MATHS", ORANGE)));
 
         assertNotEquals(ORANGE.toLowerCase(), r.baseColor("SYN_MATHS").toLowerCase());
+    }
+
+    @Test
+    void enrichedName_resolvesToTheRawSubjectsColour() {
+        // The timetable colours by raw subject; the assignment and evaluation views only know the
+        // enriched name. Both must land on the same colour, or the views disagree about a subject.
+        SubjectColorResolver r = SubjectColorResolver.from(
+                config("official", Map.of()), List.of(enriched("SYN_MATHS", "Maths", ORANGE)));
+
+        assertEquals(r.baseColor("SYN_MATHS"), r.baseColor("Maths"));
+        assertEquals(ORANGE.toLowerCase(), r.baseColor("Maths").toLowerCase());
+    }
+
+    @Test
+    void enrichedName_resolvesToTheRawSubjectsOverride() {
+        SubjectColorResolver r = SubjectColorResolver.from(
+                config("palette", Map.of("SYN_MATHS", ORANGE)),
+                List.of(enriched("SYN_MATHS", "Maths", null)));
+
+        assertEquals(ORANGE.toLowerCase(), r.baseColor("Maths").toLowerCase());
+    }
+
+    @Test
+    void enrichedName_sharesThePaletteEntryOfItsRawSubject() {
+        // Palette mode hashes the name, so without the alias the two views hash different strings
+        // and land on different palette slots for the same subject.
+        SubjectColorResolver r = SubjectColorResolver.from(
+                config("palette", Map.of()), List.of(enriched("SYN_MATHS", "Maths", null)));
+
+        assertEquals(r.baseColor("SYN_MATHS"), r.baseColor("Maths"));
+    }
+
+    @Test
+    void anUnknownEnrichedName_stillGetsAColour() {
+        SubjectColorResolver r = SubjectColorResolver.from(
+                config("official", Map.of()), List.of(enriched("SYN_MATHS", "Maths", ORANGE)));
+
+        assertTrue(SubjectColorResolver.isHex(r.baseColor("Latin manuel")));
     }
 
     @Test

@@ -37,6 +37,11 @@ public class AssignmentViewRenderer {
         generator.setColorResolver(colors);
     }
 
+    /** Applies the configured subject icons to the generator. */
+    public void setIconResolver(SubjectIconResolver icons) {
+        generator.setIconResolver(icons);
+    }
+
     /**
      * Generates the assignment HTML view and writes it to the configured output directory.
      *

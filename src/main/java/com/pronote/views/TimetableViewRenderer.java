@@ -54,6 +54,11 @@ public class TimetableViewRenderer {
         generator.setColorResolver(colors);
     }
 
+    /** Applies the configured subject icons to the generator. */
+    public void setIconResolver(SubjectIconResolver icons) {
+        generator.setIconResolver(icons);
+    }
+
     public TimetableViewRenderer(AppConfig.TimetableViewConfig viewConfig) {
         this.viewConfig = viewConfig;
     }

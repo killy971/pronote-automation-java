@@ -45,13 +45,20 @@ public class AssignmentHtmlGenerator {
         this.newBadgeDays = newBadgeDays;
     }
 
-    /** Accent palette — same as timetable views; colour index = {@code abs(subject.hashCode()) % 12}. */
     /** Resolves each subject's accent colour; see {@link SubjectColorResolver}. */
     private SubjectColorResolver colors = SubjectColorResolver.paletteOnly();
+
+    /** Resolves each subject's emoji; see {@link SubjectIconResolver}. Off unless configured. */
+    private SubjectIconResolver icons = SubjectIconResolver.disabled();
 
     /** Overrides the default palette-only resolver. */
     public void setColorResolver(SubjectColorResolver colors) {
         if (colors != null) this.colors = colors;
+    }
+
+    /** Overrides the default no-icon resolver. */
+    public void setIconResolver(SubjectIconResolver icons) {
+        if (icons != null) this.icons = icons;
     }
 
     private static final DateTimeFormatter DATE_HEADER_FMT =
@@ -152,7 +159,9 @@ public class AssignmentHtmlGenerator {
         sb.append("      <ul class=\"eval-banner__list\">\n");
         for (EvalEntry e : evals) {
             String shortDate = capitalize(e.date.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.FRENCH)));
-            sb.append("        <li>").append(esc(e.subject))
+            sb.append("        <li style=\"").append(colors.styleAttr(e.subject)).append("\">")
+              .append("<span class=\"eval-banner__dot\" aria-hidden=\"true\"></span>")
+              .append(icons.prefix(e.subject)).append(esc(e.subject))
               .append(" <span class=\"eval-banner__date\">\u2014\u00a0").append(esc(shortDate)).append("</span></li>\n");
         }
         sb.append("      </ul>\n");
@@ -244,10 +253,12 @@ public class AssignmentHtmlGenerator {
         String accentStyle = colors.styleAttr(subject);
         StringBuilder sb = new StringBuilder();
 
-        sb.append("        <div class=\"subject-group\">\n");
-        sb.append("          <div class=\"subject-group__header\" style=\"")
-            .append(accentStyle).append("\">\n");
-        sb.append("            <span class=\"subject-group__name\">").append(esc(subject)).append("</span>\n");
+        // The accent is declared on the wrapper, not the header: custom properties inherit, so
+        // the cards below can tint their own left edge from the same pair of values.
+        sb.append("        <div class=\"subject-group\" style=\"").append(accentStyle).append("\">\n");
+        sb.append("          <div class=\"subject-group__header\">\n");
+        sb.append("            <span class=\"subject-group__name\">")
+            .append(icons.prefix(subject)).append(esc(subject)).append("</span>\n");
         sb.append("          </div>\n");
 
         for (EvalEntry e : evals) {
@@ -547,6 +558,7 @@ public class AssignmentHtmlGenerator {
           background: var(--surface);
           border-radius: 8px;
           border: 1px solid var(--border);
+          border-left: 3px solid var(--border);
           box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
           margin-bottom: 0.375rem;
           display: flex;
@@ -626,6 +638,16 @@ public class AssignmentHtmlGenerator {
         .eval-banner__list li {
           color: var(--text-1);
           font-weight: 500;
+        }
+
+        .eval-banner__dot {
+          display: inline-block;
+          width: 0.4rem;
+          height: 0.4rem;
+          border-radius: 50%;
+          margin-right: 0.4rem;
+          vertical-align: 0.05rem;
+          background: var(--border);
         }
 
         .eval-banner__date {
@@ -730,17 +752,43 @@ public class AssignmentHtmlGenerator {
           }
         }
         /* ----- Subject accent -----
-           Each card carries --accent (light theme) and --accent-dark (dark theme) inline; the
-           rules below pick the right one, so one markup path serves both themes with no JS.
-           Colours come from SubjectColorResolver, which nudges any value that would be
-           invisible against that theme's card background.
+           Each subject group carries --accent (light theme) and --accent-dark (dark theme) inline
+           on its wrapper; the rules below pick the right one, so one markup path serves both
+           themes with no JS. Colours come from SubjectColorResolver, which nudges any value that
+           would be invisible against that theme's card background.
+
+           The subject is what the reader scans this page for, so the colour is carried by the
+           name itself, a tinted header strip, and a thin left edge shared by the cards under it —
+           enough to tell two subjects apart in one glance, and far short of a coloured block.
+           color-mix keeps the tints derived from the one inline value rather than needing four
+           more of them; the plain declaration before each is the fallback for a browser without
+           it.
 
            These rules MUST stay last: the component rules above set the border with the
            `border-left` shorthand, which resets border-left-color to var(--border) — grey — and
            would win on source order otherwise. */
-        .subject-group__header { border-left-color: var(--accent); }
-        @media (prefers-color-scheme: dark) {
-          .subject-group__header { border-left-color: var(--accent-dark); }
+        .subject-group__header {
+          border-left-color: var(--accent);
+          background: color-mix(in srgb, var(--accent) 7%, var(--surface));
         }
-        """;
+        .subject-group__name { color: var(--accent); }
+        /* :not() keeps the eval card's amber edge — it is the same specificity as the accent
+           rule and would otherwise lose on source order. */
+        .assignment-card:not(.assignment-card--eval) {
+          border-left-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+        }
+        .eval-banner__dot { background: var(--accent); }
+
+        @media (prefers-color-scheme: dark) {
+          .subject-group__header {
+            border-left-color: var(--accent-dark);
+            background: color-mix(in srgb, var(--accent-dark) 10%, var(--surface));
+          }
+          .subject-group__name { color: var(--accent-dark); }
+          .assignment-card:not(.assignment-card--eval) {
+            border-left-color: color-mix(in srgb, var(--accent-dark) 40%, var(--border));
+          }
+          .eval-banner__dot { background: var(--accent-dark); }
+        }
+        """ + SubjectIconResolver.CSS;
 }

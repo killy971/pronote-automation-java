@@ -1,5 +1,6 @@
 package com.pronote.views;
 
+import com.pronote.config.AppConfig;
 import com.pronote.domain.Assignment;
 import com.pronote.domain.AttachmentRef;
 import com.pronote.domain.TimetableEntry;
@@ -162,5 +163,42 @@ class AssignmentHtmlGeneratorTest {
         // Subject of the eval should appear; we don't pin the exact banner copy
         assertTrue(html.contains("SYN_PHYS"));
         assertTrue(html.contains("DS révision chap. 7"));
+        // The banner line carries the subject's accent so its dot can be coloured.
+        assertTrue(html.contains("<li style=\"--accent:"), html);
+        assertTrue(html.contains("<span class=\"eval-banner__dot\" aria-hidden=\"true\"></span>"), html);
+    }
+
+    // -------------------------------------------------------------------------
+    // Subject accent + icon
+    // -------------------------------------------------------------------------
+
+    @Test
+    void subjectAccent_isDeclaredOnTheGroupWrapper_soCardsInheritIt(@TempDir Path outDir) {
+        // Custom properties inherit: the cards tint their left edge from the wrapper's value.
+        // Declared on the header instead, they would resolve to nothing on the cards below it.
+        Assignment a = assignment("a-1", "SYN_MATHS", LocalDate.now().plusDays(1), "body");
+        String html = new AssignmentHtmlGenerator().generate(List.of(a), List.of(), outDir);
+
+        assertTrue(html.contains("<div class=\"subject-group\" style=\"--accent:"), html);
+        assertFalse(html.contains("<div class=\"subject-group__header\" style="), html);
+    }
+
+    @Test
+    void subjectIcon_precedesTheSubjectName_whenEnabled(@TempDir Path outDir) {
+        Assignment a = assignment("a-1", "MATHEMATIQUES", LocalDate.now().plusDays(1), "body");
+
+        // The slot rule is always in the stylesheet; what must be absent is the markup.
+        AssignmentHtmlGenerator plain = new AssignmentHtmlGenerator();
+        assertFalse(plain.generate(List.of(a), List.of(), outDir).contains("<span class=\"subject-icon\""),
+                "icons must stay off until configured");
+
+        AppConfig.SubjectIconsConfig config = new AppConfig.SubjectIconsConfig();
+        config.setEnabled(true);
+        AssignmentHtmlGenerator withIcons = new AssignmentHtmlGenerator();
+        withIcons.setIconResolver(SubjectIconResolver.from(config, List.of()));
+        String html = withIcons.generate(List.of(a), List.of(), outDir);
+
+        assertTrue(html.contains("<span class=\"subject-icon\" aria-hidden=\"true\">\uD83D\uDCD0"
+                + "</span>MATHEMATIQUES"), html);
     }
 }

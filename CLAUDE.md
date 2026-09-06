@@ -382,6 +382,8 @@ CSS lives inside each generator class as a static text-block `CSS` constant, emb
 - Responsive: `max-width: 480px` centred container; same layout works on mobile and desktop.
 - Subject accent colours: see below. Each card carries `--accent` / `--accent-dark` inline and the
   stylesheet picks per theme — no JS, and one markup path for both.
+- Subject icons: see below. Off by default; the `.subject-icon` slot rule is shared verbatim
+  (`SubjectIconResolver.CSS`, appended to every generator's stylesheet).
 
 ### Subject accent colours
 
@@ -405,6 +407,17 @@ Only the timetable carries colours, so `Main.colorResolver(config, timetable)` b
 from the timetable list and hands the same instance to the assignment and evaluation renderers —
 that is what keeps an assignment card the same colour as its lesson.
 
+**Raw subject in, enriched subject out.** The timetable colours a lesson by its *raw* subject
+(`colors.styleAttr(e.getSubject())`) because that is the key Pronote's own colour arrives under;
+the assignment and evaluation views only ever hold the *enriched* name. Sharing one resolver
+instance is therefore not enough on its own — the two views look the same subject up under
+different strings. `SubjectColorResolver.canonical` closes that gap with a
+`enrichedSubject → subject` map built from the same timetable list, and it feeds overrides,
+official colours **and** the palette hash. Without it, `source: official` silently coloured every
+assignment card from the fallback palette while the timetable showed the school's colours.
+`HISTOIRE-GEOGRAPHIE` enriching to two names (`Histoire`, `Géographie`) is fine: both alias back
+to the one raw subject and share its colour, exactly as the two lessons do.
+
 **Two colours per subject, not one.** Schools pick colours against Pronote's white background, so
 they are not all usable on both themes. Measured on this instance: `MATHEMATIQUES` is `#FFED00`
 (1.07:1 on white — invisible) and `MUSIQUE` is `#212853` (1.26:1 on the dark card — invisible).
@@ -417,6 +430,37 @@ renders as `#059bb4` on the light theme.
 
 A rule change here needs no re-fetch, but **switching `source` to `official` does**: the colour is
 only written to the snapshot by a `fetch` run. `make views` alone shows the palette until then.
+
+**Where the accent is spent in each view.** The timetable gives a lesson card a 4px left border.
+The assignment view carries the accent on the `.subject-group` wrapper — custom properties inherit,
+so the header strip (border + 7% tint), the subject name, and a thin left edge on every card in
+the group all derive from that one inline pair. It is the subject a reader scans that page for, so
+the colour has to reach the name itself; the tints come from `color-mix` rather than four more
+inline values. `.assignment-card:not(.assignment-card--eval)` keeps the amber eval card as it was.
+
+### Subject icons
+
+`SubjectIconResolver` puts an emoji before the subject name in the timetable, assignment and
+evaluation views. Off unless `subjectIcons.enabled: true`. Three sources, most specific first:
+
+1. a `subjectIcons.icons` entry — keyed on the raw Pronote subject **or** its enriched name,
+   either spelling works; an empty value suppresses the icon for that subject;
+2. the built-in `RULES` table;
+3. nothing — an unrecognised subject renders with no icon rather than a wrong one.
+
+`RULES` is an ordered list of substring probes against an accent-stripped, upper-cased subject
+name, not a map, because Pronote subject strings differ per establishment. **The order is
+load-bearing**: `ED.PHYSIQUE & SPORT.` contains `PHYSIQUE`, so the sport rules come first, and
+`HISTOIRE-GEOGRAPHIE` contains both halves, so the combined rule precedes either.
+`SubjectIconResolverTest` pins those orderings — add a rule next to what it must not shadow.
+
+The icon is matched on the **displayed** (enriched) name first, falling back to the raw subject, so
+a `HISTOIRE-GEOGRAPHIE` split by teacher shows 🏰 on Histoire and 🌍 on Géographie. It renders in a
+fixed-width `.subject-icon` slot: emoji advance widths differ enough that raw inline emoji would
+start every subject name at a different x, which defeats the point of scanning a column of them.
+`aria-hidden` keeps it out of screen readers — the full subject name follows it.
+
+Icons need no re-fetch: `make views` picks up a config change immediately.
 
 ### Modifying the views
 

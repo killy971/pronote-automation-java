@@ -35,6 +35,9 @@ public class TimetableHtmlGenerator {
     /** Resolves each subject's accent colour; see {@link SubjectColorResolver}. */
     private SubjectColorResolver colors = SubjectColorResolver.paletteOnly();
 
+    /** Resolves each subject's emoji; see {@link SubjectIconResolver}. Off unless configured. */
+    private SubjectIconResolver icons = SubjectIconResolver.disabled();
+
     private static final DateTimeFormatter FULL_DATE_FMT =
         DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.FRENCH);
     private static final DateTimeFormatter SHORT_DATE_FMT =
@@ -275,11 +278,13 @@ public class TimetableHtmlGenerator {
         // Subject — wrapped with assignment chip when present
         if (showChip) {
             card.append("        <div class=\"lesson__head\">\n");
-            card.append("          <div class=\"lesson__subject\">").append(esc(subjectLabel)).append("</div>\n");
+            card.append("          <div class=\"lesson__subject\">")
+                .append(icons.prefix(subjectLabel)).append(esc(subjectLabel)).append("</div>\n");
             card.append(renderAssignChip(subjectLabel, subjectAssignments));
             card.append("        </div>\n");
         } else {
-            card.append("        <div class=\"lesson__subject\">").append(esc(subjectLabel)).append("</div>\n");
+            card.append("        <div class=\"lesson__subject\">")
+                .append(icons.prefix(subjectLabel)).append(esc(subjectLabel)).append("</div>\n");
         }
 
         // Teacher
@@ -443,6 +448,11 @@ public class TimetableHtmlGenerator {
     /** Overrides the default palette-only resolver. */
     public void setColorResolver(SubjectColorResolver colors) {
         if (colors != null) this.colors = colors;
+    }
+
+    /** Overrides the default no-icon resolver. */
+    public void setIconResolver(SubjectIconResolver icons) {
+        if (icons != null) this.icons = icons;
     }
 
     /** Returns the display name for a timetable entry: enrichedSubject if set, else subject. */
@@ -1027,5 +1037,5 @@ public class TimetableHtmlGenerator {
         @media (prefers-color-scheme: dark) {
           .lesson { border-left-color: var(--accent-dark); }
         }
-        """;
+        """ + SubjectIconResolver.CSS;
 }

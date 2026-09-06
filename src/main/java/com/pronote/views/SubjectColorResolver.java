@@ -21,6 +21,10 @@ import java.util.Map;
  * <p>The palette is always the final fallback, so a manual entry or a subject Pronote left blank
  * still gets a border rather than none.
  *
+ * <p>All three are looked up under the <em>raw</em> subject: a display name is first mapped back
+ * to it by {@link #canonical(String)}, so the assignment and evaluation views — which only hold
+ * the enriched name — land on the same colour as the lesson.
+ *
  * <p><strong>Why two colours per subject.</strong> Schools pick colours against Pronote's white
  * background, so they are not all usable on both themes. Measured on a real timetable: MUSIQUE is
  * {@code #212853}, which manages 1.26:1 against the dark card background — invisible; LANGUE &amp;
@@ -50,17 +54,20 @@ public final class SubjectColorResolver {
     private final boolean useOfficial;
     private final Map<String, String> overrides;
     private final Map<String, String> officialBySubject;
+    private final Map<String, String> rawByEnriched;
 
     private SubjectColorResolver(boolean useOfficial, Map<String, String> overrides,
-                                 Map<String, String> officialBySubject) {
+                                 Map<String, String> officialBySubject,
+                                 Map<String, String> rawByEnriched) {
         this.useOfficial = useOfficial;
         this.overrides = overrides;
         this.officialBySubject = officialBySubject;
+        this.rawByEnriched = rawByEnriched;
     }
 
     /** A resolver that ignores Pronote's colours and always uses the built-in palette. */
     public static SubjectColorResolver paletteOnly() {
-        return new SubjectColorResolver(false, Map.of(), Map.of());
+        return new SubjectColorResolver(false, Map.of(), Map.of(), Map.of());
     }
 
     /**
@@ -71,10 +78,14 @@ public final class SubjectColorResolver {
     public static SubjectColorResolver from(AppConfig.SubjectColorsConfig config,
                                             List<TimetableEntry> timetable) {
         Map<String, String> official = new LinkedHashMap<>();
+        Map<String, String> rawByEnriched = new LinkedHashMap<>();
         if (timetable != null) {
             for (TimetableEntry e : timetable) {
-                if (e.getSubject() != null && isHex(e.getColor())) {
-                    official.putIfAbsent(e.getSubject(), e.getColor());
+                if (e.getSubject() == null) continue;
+                if (isHex(e.getColor())) official.putIfAbsent(e.getSubject(), e.getColor());
+                String enriched = e.getEnrichedSubject();
+                if (enriched != null && !enriched.isBlank() && !enriched.equals(e.getSubject())) {
+                    rawByEnriched.putIfAbsent(enriched, e.getSubject());
                 }
             }
         }
@@ -84,21 +95,40 @@ public final class SubjectColorResolver {
                 if (subject != null && isHex(hex)) overrides.put(subject, hex);
             });
         }
-        return new SubjectColorResolver(config != null && config.isOfficial(), overrides, official);
+        return new SubjectColorResolver(config != null && config.isOfficial(),
+                                        overrides, official, rawByEnriched);
     }
 
     // -------------------------------------------------------------------------
 
+    /**
+     * The raw Pronote subject a display name stands for.
+     *
+     * <p>The timetable colours a lesson by its raw subject ({@code MATHEMATIQUES}) while the
+     * assignment and evaluation views only ever know the enriched one ({@code Mathématiques}).
+     * Without this hop the two views look the same subject up under different keys and land on
+     * different colours — the assignment view silently falling back to the palette while the
+     * timetable shows the school's own colour. Returns the argument unchanged when it is already
+     * a raw subject, or when no timetable entry enriches to it (a manual entry, a subject dropped
+     * from the timetable).
+     */
+    String canonical(String subject) {
+        String raw = rawByEnriched.get(subject);
+        return raw != null ? raw : subject;
+    }
+
     /** The subject's base colour, before any per-theme contrast adjustment. */
     String baseColor(String subject) {
         if (subject == null) return PALETTE[0];
-        String override = overrides.get(subject);
+        String key = canonical(subject);
+        String override = overrides.get(key);
+        if (override == null) override = overrides.get(subject);
         if (override != null) return override;
         if (useOfficial) {
-            String official = officialBySubject.get(subject);
+            String official = officialBySubject.get(key);
             if (official != null) return official;
         }
-        return PALETTE[Math.abs(subject.hashCode()) % PALETTE.length];
+        return PALETTE[Math.abs(key.hashCode()) % PALETTE.length];
     }
 
     /** Accent for the light theme: dark enough to be visible on a white card. */

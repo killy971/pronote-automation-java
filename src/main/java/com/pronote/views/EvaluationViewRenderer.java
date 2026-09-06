@@ -26,12 +26,20 @@ public class EvaluationViewRenderer {
     private final AppConfig.EvaluationViewConfig viewConfig;
     private final EvaluationHtmlGenerator generator = new EvaluationHtmlGenerator();
     private SubjectColorResolver colors = SubjectColorResolver.paletteOnly();
+    private SubjectIconResolver icons = SubjectIconResolver.disabled();
 
     /** Applies the configured subject-colour source to both the bilan and summary generators. */
     public void setColorResolver(SubjectColorResolver colors) {
         if (colors == null) return;
         this.colors = colors;
         generator.setColorResolver(colors);
+    }
+
+    /** Applies the configured subject icons to both the bilan and the summary generator. */
+    public void setIconResolver(SubjectIconResolver icons) {
+        if (icons == null) return;
+        this.icons = icons;
+        generator.setIconResolver(icons);
     }
 
     public EvaluationViewRenderer(AppConfig.EvaluationViewConfig viewConfig) {
@@ -69,6 +77,7 @@ public class EvaluationViewRenderer {
         log.info("Generating evaluation summary view in {}", outDir);
         EvaluationSummaryHtmlGenerator summaryGenerator = new EvaluationSummaryHtmlGenerator();
         summaryGenerator.setColorResolver(colors);
+        summaryGenerator.setIconResolver(icons);
         String html = summaryGenerator.generate(evaluations);
         Path file = outDir.resolve("summary.html");
         try {

@@ -36,6 +36,7 @@ import com.pronote.views.GitPublisher;
 import com.pronote.views.PortalIndexHtmlGenerator;
 import com.pronote.views.SchoolLifeViewRenderer;
 import com.pronote.views.SubjectColorResolver;
+import com.pronote.views.SubjectIconResolver;
 import com.pronote.views.TimetableViewRenderer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -341,12 +342,14 @@ public class Main {
         if (features.isSchoolLife())   snapshotStore.saveSnapshot("school-life", schoolLife);
 
         SubjectColorResolver colors = colorResolver(config, timetable);
+        SubjectIconResolver icons = iconResolver(config, timetable);
 
         // ---- 10. Generate static HTML timetable views ---------------------
         if (features.isTimetable() && config.getTimetableView().isEnabled()) {
             log.info("Generating timetable HTML views...");
             TimetableViewRenderer renderer = new TimetableViewRenderer(config.getTimetableView());
             renderer.setColorResolver(colors);
+            renderer.setIconResolver(icons);
             renderer.render(timetable, assignments);
         }
 
@@ -355,6 +358,7 @@ public class Main {
             log.info("Generating assignment HTML view...");
             AssignmentViewRenderer renderer = new AssignmentViewRenderer(config.getAssignmentView());
             renderer.setColorResolver(colors);
+            renderer.setIconResolver(icons);
             renderer.render(assignments, timetable);
         }
 
@@ -363,6 +367,7 @@ public class Main {
             log.info("Generating evaluation HTML views...");
             EvaluationViewRenderer evalRenderer = new EvaluationViewRenderer(config.getEvaluationView());
             evalRenderer.setColorResolver(colors);
+            evalRenderer.setIconResolver(icons);
             evalRenderer.render(evaluations);
             evalRenderer.renderSummary(evaluations);
         }
@@ -477,6 +482,7 @@ public class Main {
             log.info("Regenerating timetable views from snapshot ({} entries)...", timetableData.size());
             TimetableViewRenderer renderer = new TimetableViewRenderer(config.getTimetableView());
             renderer.setColorResolver(colorResolver(config, timetableData));
+            renderer.setIconResolver(iconResolver(config, timetableData));
             renderer.render(timetableData, assignmentsData);
         }
 
@@ -489,6 +495,7 @@ public class Main {
             log.info("Regenerating assignment view from snapshot ({} entries)...", assignmentsData.size());
             AssignmentViewRenderer renderer = new AssignmentViewRenderer(config.getAssignmentView());
             renderer.setColorResolver(colorResolver(config, timetableData));
+            renderer.setIconResolver(iconResolver(config, timetableData));
             renderer.render(assignmentsData, timetableData);
         }
 
@@ -507,6 +514,7 @@ public class Main {
                 log.info("Regenerating evaluation views from snapshot ({} entries)...", evaluationsData.size());
                 EvaluationViewRenderer evalRenderer = new EvaluationViewRenderer(config.getEvaluationView());
                 evalRenderer.setColorResolver(colorResolver(config, timetableData));
+                evalRenderer.setIconResolver(iconResolver(config, timetableData));
                 evalRenderer.render(evaluationsData);
                 evalRenderer.renderSummary(evaluationsData);
             }
@@ -656,11 +664,13 @@ public class Main {
         }
 
         SubjectColorResolver diffColors = colorResolver(config, timetable);
+        SubjectIconResolver diffIcons = iconResolver(config, timetable);
 
         if (features.isTimetable() && config.getTimetableView().isEnabled() && !timetable.isEmpty()) {
             log.info("Regenerating timetable HTML views...");
             TimetableViewRenderer renderer = new TimetableViewRenderer(config.getTimetableView());
             renderer.setColorResolver(diffColors);
+            renderer.setIconResolver(diffIcons);
             renderer.render(timetable, assignments);
         }
 
@@ -668,6 +678,7 @@ public class Main {
             log.info("Regenerating assignment HTML view...");
             AssignmentViewRenderer renderer = new AssignmentViewRenderer(config.getAssignmentView());
             renderer.setColorResolver(diffColors);
+            renderer.setIconResolver(diffIcons);
             renderer.render(assignments, timetable);
         }
 
@@ -675,6 +686,7 @@ public class Main {
             log.info("Regenerating evaluation HTML views...");
             EvaluationViewRenderer evalRenderer = new EvaluationViewRenderer(config.getEvaluationView());
             evalRenderer.setColorResolver(diffColors);
+            evalRenderer.setIconResolver(diffIcons);
             evalRenderer.render(evaluations);
             evalRenderer.renderSummary(evaluations);
         }
@@ -776,6 +788,15 @@ public class Main {
      */
     private static SubjectColorResolver colorResolver(AppConfig config, List<TimetableEntry> timetable) {
         return SubjectColorResolver.from(config.getSubjectColors(), timetable);
+    }
+
+    /**
+     * Builds the subject-icon resolver for a render pass. Like the colours, it reads the timetable
+     * so a {@code subjectIcons.icons} key written as either the raw Pronote subject or its
+     * enriched name matches in every view.
+     */
+    private static SubjectIconResolver iconResolver(AppConfig config, List<TimetableEntry> timetable) {
+        return SubjectIconResolver.from(config.getSubjectIcons(), timetable);
     }
 
     // -------------------------------------------------------------------------
