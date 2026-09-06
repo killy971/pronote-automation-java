@@ -33,29 +33,37 @@ public final class NotificationPayloadBuilder {
 
     private NotificationPayloadBuilder() {}
 
+    /**
+     * Builds a payload without a timetable snapshot to resolve slots against. Slot pairing then
+     * falls back to the diff's own entries — see {@link TimetableChanges}. Prefer the overload
+     * that takes the current timetable.
+     */
     public static NotificationPayload build(DiffResult<Assignment> assignmentDiff,
                                             DiffResult<TimetableEntry> timetableDiff,
                                             DiffResult<Grade> gradeDiff,
                                             DiffResult<CompetenceEvaluation> evaluationDiff,
                                             DiffResult<SchoolLifeEvent> schoolLifeDiff) {
-        // Newly-cancelled entries: modified entries whose status flipped to CANCELLED,
-        // plus any added entries already CANCELLED (rare but possible).
-        List<TimetableEntry> cancelledEntries = new ArrayList<>();
-        for (Map.Entry<TimetableEntry, List<FieldChange>> e : timetableDiff.modified().entrySet()) {
-            if (e.getKey().getStatus() == EntryStatus.CANCELLED
-                    && e.getValue().stream().anyMatch(fc -> "status".equals(fc.fieldName()))) {
-                cancelledEntries.add(e.getKey());
-            }
-        }
-        for (TimetableEntry e : timetableDiff.added()) {
-            if (e.getStatus() == EntryStatus.CANCELLED) cancelledEntries.add(e);
-        }
+        return build(assignmentDiff, timetableDiff, gradeDiff, evaluationDiff, schoolLifeDiff,
+                List.of());
+    }
 
-        String title = buildTitle(assignmentDiff, timetableDiff, gradeDiff, evaluationDiff,
-                schoolLifeDiff, cancelledEntries);
+    /**
+     * @param currentTimetable the timetable snapshot the diff produced — used to tell a real
+     *                         cancellation from the cancelled ghost Pronote leaves behind when a
+     *                         lesson merely changes room or teacher.
+     */
+    public static NotificationPayload build(DiffResult<Assignment> assignmentDiff,
+                                            DiffResult<TimetableEntry> timetableDiff,
+                                            DiffResult<Grade> gradeDiff,
+                                            DiffResult<CompetenceEvaluation> evaluationDiff,
+                                            DiffResult<SchoolLifeEvent> schoolLifeDiff,
+                                            List<TimetableEntry> currentTimetable) {
+        TimetableChanges tt = TimetableChanges.of(timetableDiff, currentTimetable);
+
+        String title = buildTitle(assignmentDiff, tt, gradeDiff, evaluationDiff, schoolLifeDiff);
 
         int sectionsWithChanges = (assignmentDiff.isEmpty() ? 0 : 1)
-                + (timetableDiff.isEmpty() ? 0 : 1)
+                + (tt.isEmpty() ? 0 : 1)
                 + (gradeDiff.isEmpty() ? 0 : 1)
                 + (evaluationDiff.isEmpty() ? 0 : 1)
                 + (schoolLifeDiff.isEmpty() ? 0 : 1);
@@ -67,9 +75,9 @@ public final class NotificationPayloadBuilder {
             appendAssignmentLines(body, assignmentDiff);
             if (multiSection) body.append("\n");
         }
-        if (!timetableDiff.isEmpty()) {
+        if (!tt.isEmpty()) {
             if (multiSection) body.append("📅 Emploi du temps\n");
-            appendTimetableLines(body, timetableDiff);
+            appendTimetableLines(body, tt);
             if (multiSection) body.append("\n");
         }
         if (!gradeDiff.isEmpty()) {
@@ -87,8 +95,9 @@ public final class NotificationPayloadBuilder {
             appendSchoolLifeLines(body, schoolLifeDiff);
         }
 
+        // A lost lesson or a school-life event is worth interrupting for; a room change is not.
         NotificationPayload.Priority priority =
-                (!cancelledEntries.isEmpty() || !timetableDiff.removed().isEmpty()
+                (tt.hasLostLessons() || !tt.removals().isEmpty()
                         || !schoolLifeDiff.added().isEmpty())
                 ? NotificationPayload.Priority.HIGH
                 : NotificationPayload.Priority.NORMAL;
@@ -101,22 +110,34 @@ public final class NotificationPayloadBuilder {
     // -------------------------------------------------------------------------
 
     private static String buildTitle(DiffResult<Assignment> asgn,
-                                     DiffResult<TimetableEntry> tt,
+                                     TimetableChanges tt,
                                      DiffResult<Grade> grades,
                                      DiffResult<CompetenceEvaluation> evals,
-                                     DiffResult<SchoolLifeEvent> schoolLife,
-                                     List<TimetableEntry> cancelledEntries) {
+                                     DiffResult<SchoolLifeEvent> schoolLife) {
         List<String> tokens = new ArrayList<>();
 
-        // 1. Cancellations (highest urgency)
-        if (!cancelledEntries.isEmpty()) {
-            if (cancelledEntries.size() == 1) {
-                TimetableEntry e = cancelledEntries.get(0);
+        // 1. Cancellations (highest urgency) — only lessons nothing takes over
+        List<TimetableEntry> cancelled = tt.cancellations();
+        if (!cancelled.isEmpty()) {
+            if (cancelled.size() == 1) {
+                TimetableEntry e = cancelled.get(0);
                 String reason = e.getStatusLabel() != null && !e.getStatusLabel().isBlank()
                         ? e.getStatusLabel() : "annulé";
                 tokens.add("✗ " + subject(e) + " " + reason + " · " + fmtDateTime(e.getStartTime()));
             } else {
-                tokens.add("✗ " + cancelledEntries.size() + " cours annulés");
+                tokens.add("✗ " + cancelled.size() + " cours annulés");
+            }
+        }
+
+        // 1b. Replacements — the listed lesson is off, but another subject takes the slot
+        List<TimetableChanges.SlotPair> replacements = tt.replacements();
+        if (!replacements.isEmpty()) {
+            if (replacements.size() == 1) {
+                TimetableChanges.SlotPair p = replacements.get(0);
+                tokens.add("🔄 " + subject(p.current()) + " remplace " + subject(p.cancelled())
+                        + " · " + fmtDateTime(p.cancelled().getStartTime()));
+            } else {
+                tokens.add("🔄 " + replacements.size() + " cours remplacés");
             }
         }
 
@@ -141,9 +162,7 @@ public final class NotificationPayloadBuilder {
         }
 
         // 4a. Newly announced upcoming competence evaluations (timetable isEval=true)
-        List<TimetableEntry> addedEvalEntries = tt.added().stream()
-                .filter(e -> e.isEval() && e.getStatus() != EntryStatus.CANCELLED)
-                .toList();
+        List<TimetableEntry> addedEvalEntries = tt.addedEvals();
         if (!addedEvalEntries.isEmpty()) {
             if (addedEvalEntries.size() == 1) {
                 TimetableEntry e = addedEvalEntries.get(0);
@@ -153,16 +172,21 @@ public final class NotificationPayloadBuilder {
             }
         }
 
-        // 4b. Other timetable changes (non-cancelled non-eval additions, removals, other modifications)
-        long otherTtChanges = tt.added().stream()
-                .filter(e -> e.getStatus() != EntryStatus.CANCELLED && !e.isEval()).count()
-                + tt.removed().size()
-                + tt.modified().entrySet().stream()
-                    .filter(e -> !cancelledEntries.contains(e.getKey())).count();
-        if (otherTtChanges > 0) {
-            tokens.add(cancelledEntries.isEmpty()
-                    ? "📅 " + otherTtChanges + " modif. EDT"
-                    : "📅 +" + otherTtChanges + " modif.");
+        // 4b. A single maintained-but-changed lesson: name the change, since "1 modif. EDT" is
+        // exactly the case the reader has to open the app to understand.
+        boolean anyLost = !cancelled.isEmpty() || !replacements.isEmpty();
+        if (tt.changes().size() == 1 && tt.otherChangeCount() == 1) {
+            TimetableChanges.SlotPair p = tt.changes().get(0);
+            tokens.add("🔀 " + subject(p.current()) + " " + slotChangeSummary(p)
+                    + " · " + fmtDate(p.current().getStartTime().toLocalDate()));
+        } else {
+            // 4c. Other timetable changes (additions, removals, modifications, room changes)
+            long otherTtChanges = tt.otherChangeCount();
+            if (otherTtChanges > 0) {
+                tokens.add(anyLost
+                        ? "📅 +" + otherTtChanges + " modif."
+                        : "📅 " + otherTtChanges + " modif. EDT");
+            }
         }
 
         // 5. New school life events
@@ -186,7 +210,7 @@ public final class NotificationPayloadBuilder {
 
         // 7. Catch-all: modifications/removals only
         if (tokens.isEmpty()) {
-            int mods = asgn.modified().size() + tt.modified().size() + grades.modified().size()
+            int mods = asgn.modified().size() + (int) tt.otherChangeCount() + grades.modified().size()
                     + evals.modified().size() + schoolLife.modified().size()
                     + asgn.removed().size() + grades.removed().size()
                     + evals.removed().size() + schoolLife.removed().size();
@@ -246,28 +270,51 @@ public final class NotificationPayloadBuilder {
         }
     }
 
-    private static void appendTimetableLines(StringBuilder b, DiffResult<TimetableEntry> diff) {
-        for (TimetableEntry e : diff.added()) {
-            // Upcoming competence eval (isEval=true) gets a distinct marker so the user spots
-            // it among regular timetable changes. The eval's own label (e.g. "DS énergie")
-            // replaces the room field since rooms are uninformative for evaluations.
-            String prefix;
-            if (e.getStatus() == EntryStatus.CANCELLED) prefix = "✗ ";
-            else if (e.isEval())                        prefix = "📝 ";
-            else                                        prefix = "+ ";
-            b.append(prefix).append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()));
-            if (e.isEval() && e.getLessonLabel() != null && !e.getLessonLabel().isBlank()) {
+    private static void appendTimetableLines(StringBuilder b, TimetableChanges tt) {
+        // Cancellations first: a lesson that is off outranks anything else in the section.
+        for (TimetableEntry e : tt.cancellations()) {
+            b.append("✗ ").append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()));
+            if (e.getStatusLabel() != null && !e.getStatusLabel().isBlank()) {
+                b.append(" · ").append(e.getStatusLabel());
+            }
+            b.append("\n");
+        }
+        for (TimetableChanges.SlotPair p : tt.replacements()) {
+            TimetableEntry c = p.current();
+            b.append("🔄 ").append(subject(c)).append(" remplace ").append(subject(p.cancelled()))
+                    .append(" — ").append(fmtDateTime(c.getStartTime()));
+            if (c.getRoom() != null && !c.getRoom().isBlank()) {
+                b.append(" (").append(c.getRoom()).append(")");
+            }
+            b.append("\n");
+        }
+        // Same subject on both sides of the slot: the lesson holds, its details moved.
+        for (TimetableChanges.SlotPair p : tt.changes()) {
+            b.append("🔀 ").append(subject(p.current())).append(" — ")
+                    .append(fmtDateTime(p.current().getStartTime()))
+                    .append(" · ").append(slotChangeDetail(p)).append("\n");
+        }
+        for (TimetableEntry e : tt.addedEvals()) {
+            // The eval's own label (e.g. "DS énergie") replaces the room field, since rooms are
+            // uninformative for evaluations.
+            b.append("📝 ").append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()));
+            if (e.getLessonLabel() != null && !e.getLessonLabel().isBlank()) {
                 b.append(" — ").append(truncate(e.getLessonLabel(), 60));
-            } else if (e.getRoom() != null && !e.getRoom().isBlank()) {
+            }
+            b.append("\n");
+        }
+        for (TimetableEntry e : tt.additions()) {
+            b.append("+ ").append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()));
+            if (e.getRoom() != null && !e.getRoom().isBlank()) {
                 b.append(" (").append(e.getRoom()).append(")");
             }
             b.append("\n");
         }
-        for (TimetableEntry e : diff.removed()) {
+        for (TimetableEntry e : tt.removals()) {
             b.append("- ").append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()))
                     .append(" [supprimé]\n");
         }
-        for (Map.Entry<TimetableEntry, List<FieldChange>> entry : diff.modified().entrySet()) {
+        for (Map.Entry<TimetableEntry, List<FieldChange>> entry : tt.modifications().entrySet()) {
             TimetableEntry e = entry.getKey();
             String prefix = e.getStatus() == EntryStatus.CANCELLED ? "✗ " : "~ ";
             b.append(prefix).append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()));
@@ -372,6 +419,56 @@ public final class NotificationPayloadBuilder {
                                   ? "marqué fait" : "marqué non fait";
             default            -> fc.fieldName() + " modifié";
         };
+    }
+
+    /**
+     * What moved between the cancelled ghost and the lesson that replaced it, for the body:
+     * {@code "salle B303 → B203"}. Falls back to Pronote's own status label
+     * ({@code "Changement de salle"}) when the visible fields are identical.
+     */
+    private static String slotChangeDetail(TimetableChanges.SlotPair p) {
+        List<String> parts = new ArrayList<>();
+        if (differs(p.cancelled().getRoom(), p.current().getRoom())) {
+            parts.add("salle " + orDash(p.cancelled().getRoom()) + " → " + orDash(p.current().getRoom()));
+        }
+        if (differs(p.cancelled().getTeacher(), p.current().getTeacher())) {
+            parts.add("prof. " + orDash(p.cancelled().getTeacher()) + " → " + orDash(p.current().getTeacher()));
+        }
+        if (!java.util.Objects.equals(p.cancelled().getEndTime(), p.current().getEndTime())) {
+            parts.add("horaire modifié");
+        }
+        if (parts.isEmpty()) {
+            String label = p.current().getStatusLabel();
+            return label != null && !label.isBlank() ? label : "modifié";
+        }
+        return String.join(", ", parts.subList(0, Math.min(2, parts.size())));
+    }
+
+    /** The same change in title form — new value only, no arrow, kept short. */
+    private static String slotChangeSummary(TimetableChanges.SlotPair p) {
+        if (differs(p.cancelled().getRoom(), p.current().getRoom())) {
+            return "salle " + truncate(orDash(p.current().getRoom()), 20);
+        }
+        if (differs(p.cancelled().getTeacher(), p.current().getTeacher())) {
+            return "prof. " + truncate(orDash(p.current().getTeacher()), 20);
+        }
+        if (!java.util.Objects.equals(p.cancelled().getEndTime(), p.current().getEndTime())) {
+            return "horaire modifié";
+        }
+        String label = p.current().getStatusLabel();
+        return label != null && !label.isBlank() ? truncate(label, 30) : "modifié";
+    }
+
+    private static boolean differs(String a, String b) {
+        return !java.util.Objects.equals(blankToNull(a), blankToNull(b));
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s;
+    }
+
+    private static String orDash(String s) {
+        return s == null || s.isBlank() ? "—" : s;
     }
 
     private static String fmtTimetableChanges(TimetableEntry entry, List<FieldChange> changes) {

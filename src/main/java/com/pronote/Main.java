@@ -322,7 +322,7 @@ public class Main {
                 log.info("Changes detected — {}...", dryRun ? "previewing notification (dry-run)" : "sending notifications");
                 NotificationService notifier = buildNotifier(config, dryRun);
                 NotificationPayload payload = NotificationPayloadBuilder.build(assignmentDiff, timetableDiff,
-                        gradeDiff, evaluationDiff, schoolLifeDiff);
+                        gradeDiff, evaluationDiff, schoolLifeDiff, timetable);
                 try {
                     notifier.send(payload);
                 } catch (NotificationService.NotificationException e) {
@@ -652,7 +652,7 @@ public class Main {
                 log.info("Changes detected — {}...", dryRun ? "previewing notification (dry-run)" : "sending notifications");
                 NotificationService notifier = buildNotifier(config, dryRun);
                 NotificationPayload payload = NotificationPayloadBuilder.build(assignmentDiff, timetableDiff,
-                        gradeDiff, evaluationDiff, schoolLifeDiff);
+                        gradeDiff, evaluationDiff, schoolLifeDiff, timetable);
                 try {
                     notifier.send(payload);
                 } catch (NotificationService.NotificationException e) {

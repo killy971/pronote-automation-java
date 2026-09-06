@@ -3,9 +3,9 @@ package com.pronote.views;
 import com.pronote.domain.Assignment;
 import com.pronote.domain.EntryStatus;
 import com.pronote.domain.TimetableEntry;
+import com.pronote.domain.TimetableSlots;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -17,7 +17,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Generates a self-contained HTML5 page for a single day's timetable.
@@ -149,19 +148,12 @@ public class TimetableHtmlGenerator {
      * Standalone cancellations (no active sibling) are kept as-is.
      */
     static List<MergedEntry> collapseSlots(List<TimetableEntry> entries) {
-        Map<LocalDateTime, List<TimetableEntry>> byStart = entries.stream()
-            .collect(Collectors.groupingBy(TimetableEntry::getStartTime, LinkedHashMap::new, Collectors.toList()));
+        TimetableSlots slots = TimetableSlots.index(entries);
 
         List<MergedEntry> result = new ArrayList<>();
-        for (List<TimetableEntry> group : byStart.values()) {
-            List<TimetableEntry> active = group.stream()
-                .filter(e -> e.getStatus() != EntryStatus.CANCELLED
-                          && e.getStatus() != EntryStatus.EXEMPTED)
-                .toList();
-            List<TimetableEntry> cancelled = group.stream()
-                .filter(e -> e.getStatus() == EntryStatus.CANCELLED
-                          || e.getStatus() == EntryStatus.EXEMPTED)
-                .toList();
+        for (List<TimetableEntry> group : slots.slots()) {
+            List<TimetableEntry> active    = group.stream().filter(TimetableSlots::isActive).toList();
+            List<TimetableEntry> cancelled = group.stream().filter(TimetableSlots::isInactive).toList();
 
             if (active.isEmpty()) {
                 // Standalone cancellations — show as-is
@@ -170,10 +162,10 @@ public class TimetableHtmlGenerator {
                 // Separate manual eval entries (synthetic, id starts with "manual:") from real ones.
                 // Manual evals at the same slot as a real same-subject entry are absorbed into
                 // that entry's extraEvalLabel rather than emitted as a second card.
-                Map<String, String> manualEvalBySubject = new java.util.LinkedHashMap<>();
+                Map<String, String> manualEvalBySubject = new LinkedHashMap<>();
                 List<TimetableEntry> realActive = new ArrayList<>();
                 for (TimetableEntry a : active) {
-                    if (a.getId() != null && a.getId().startsWith("manual:")) {
+                    if (TimetableSlots.isManual(a)) {
                         manualEvalBySubject.put(a.getSubject(), a.getLessonLabel());
                     } else {
                         realActive.add(a);
@@ -187,7 +179,11 @@ public class TimetableHtmlGenerator {
                     }
                 } else {
                     for (TimetableEntry a : realActive) {
+                        // The sibling is the entry `a` supersedes, and only when it is a different
+                        // subject: a same-subject pair is one lesson with changed details, which
+                        // needs no "Remplace :" note.
                         TimetableEntry sibling = cancelled.stream()
+                            .filter(c -> TimetableSlots.superseder(c, group) == a)
                             .filter(c -> !Objects.equals(c.getSubject(), a.getSubject()))
                             .findFirst()
                             .orElse(null);
@@ -197,7 +193,7 @@ public class TimetableHtmlGenerator {
                     }
                     // Emit manual evals whose subject had no matching real entry at this slot
                     for (TimetableEntry a : active) {
-                        if (a.getId() != null && a.getId().startsWith("manual:")
+                        if (TimetableSlots.isManual(a)
                                 && manualEvalBySubject.containsKey(a.getSubject())) {
                             result.add(new MergedEntry(a, null));
                         }

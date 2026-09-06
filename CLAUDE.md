@@ -102,12 +102,14 @@ All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counte
 | `scraper` | `TimetableScraper` | `PageEmploiDuTemps` per-week → `TimetableEntry`; reads `estEval`/`estDevoir`/`originesCategorie` from `cahierDeTextes.V` |
 | `scraper` | `GradeScraper`, `EvaluationScraper`, `SchoolLifeScraper` | Per-type scrapers, same pattern |
 | `domain` | `Assignment`, `TimetableEntry`, `Grade`, `CompetenceEvaluation`, `SchoolLifeEvent` | Pure data, Jackson-serializable, implements `Identifiable` |
+| `domain` | `TimetableSlots` | Slot-level reading of a timetable: groups entries by start time and resolves which entry supersedes a cancelled one. Shared by the timetable view and the notification builder — see "Cancelled ghosts" below |
 | `domain` | `AttachmentRef` | Attachment metadata: `stableId`, `fileName`, `uploadedFile`, `localPath`, `mimeType`; transient `downloadUrl` (`@JsonIgnore` — never persisted) |
 | `persistence` | `SnapshotStore` | Write `latest.json`, archive old, purge expired; `loadLatest` / `loadPrevious` |
 | `persistence` | `DiffEngine` | Generic field-level diff via `jackson.valueToTree()`; registers `AttachmentRefDiffMixin` to exclude runtime fields from comparison |
 | `persistence` | `TimetableDiffFilter` | Post-diff suppression: drop past items, drop bulk normal additions in newly-discovered furthest week. `isEval=true` entries always kept (user needs lead time). |
 | `persistence` | `DiffReporter` | Writes `data/diff-latest.json` + appends to `data/diff-history.log` every run, regardless of notifications |
-| `notification` | `NotificationPayloadBuilder` | Assembles `NotificationPayload` from five diff results; sets HIGH priority when cancellations, timetable removals, or school-life additions are present; title capped at 72 chars |
+| `notification` | `TimetableChanges` | Buckets a timetable diff by slot via `TimetableSlots`: genuine cancellations, replacements, maintained-but-changed lessons, new evals, plain adds/removes/modifications. Each diff entry lands in exactly one bucket |
+| `notification` | `NotificationPayloadBuilder` | Assembles `NotificationPayload` from five diff results plus the current timetable; sets HIGH priority when lost lessons, timetable removals, or school-life additions are present; title capped at 72 chars |
 | `notification` | `CompositeNotifier` | Fan-out to NtfyNotifier + EmailNotifier; per-channel failure is logged, not fatal |
 | `views` | `*HtmlGenerator` / `*ViewRenderer` | Generator holds all HTML/CSS; Renderer handles only file I/O and date selection — no HTML in Renderer classes |
 | `views` | `GitPublisher` | Optional: copy view dirs into a sibling git repo and push (GitHub Pages) |
@@ -496,16 +498,43 @@ To verify a YAML edit without doing a full run, use `make validate` (`--mode val
 
 | Source | Title token | Body marker | Notes |
 |---|---|---|---|
-| Cancelled timetable entry (`status=CANCELLED`, modified or added) | `✗ Subject reason · date` | `✗ ` prefix | Bumps priority to HIGH |
+| Cancelled lesson, **nothing in the slot** | `✗ Subject reason · date` | `✗ ` prefix | Bumps priority to HIGH |
+| Cancelled lesson, **another subject in the slot** | `🔄 New remplace Old · date` | `🔄 ` prefix | Bumps priority to HIGH; the replacement's own `+` line is folded in |
+| Cancelled lesson, **same subject in the slot** | `🔀 Subject salle X · date` (single) else counted in `📅 N modif. EDT` | `🔀 ` prefix + `salle A → B` | NORMAL priority — the lesson still happens. See "Cancelled ghosts" below |
 | Removed timetable entry | counted in `📅 N modif. EDT` | `- ` prefix | Bumps priority to HIGH |
 | **Added upcoming eval** (`isEval=true`, added) | **`📝 Subject éval · date`** | **`📝 ` prefix + lesson label** | Always surfaced even when the furthest week is newly discovered (see `TimetableDiffFilter.isNoteworthyTimetableEntry`) |
-| Other timetable add/modify | `📅 N modif. EDT` | `+ ` or `~ ` prefix | Excludes cancelled and eval entries (counted separately) |
+| Other timetable add/modify | `📅 N modif. EDT` | `+ ` or `~ ` prefix | Excludes entries already told by a slot pairing (counted separately) |
 | New grade | `📊 Subject: x/y` | `+ ` prefix | |
 | New assignment | `📚 Subject · date` | `+ ` prefix | |
 | New school-life event | `🏫 Type · date` | `+ ` prefix | Bumps priority to HIGH |
 | New past competence eval result | `📋 Subject éval.` | `+ ` prefix | Distinct from upcoming evals — different domain type |
 
-Cancelled, removed-timetable, and school-life additions promote the notification to `HIGH` priority. The title is hard-capped at 72 chars and joins at most the first three change categories with ` · `.
+Lost lessons (cancellations and replacements), removed-timetable entries, and school-life additions promote the notification to `HIGH` priority. A room change does **not** — the lesson still happens. The title is hard-capped at 72 chars and joins at most the first three change categories with ` · `.
+
+### Cancelled ghosts — read the slot, not the entry
+
+Pronote does not model a room change, a substitute teacher, or a maintained-but-altered lesson as
+a field edit. It keeps the original slot, flags it `estAnnule`, and lists a **second** entry at the
+same start time carrying the new details. Entry by entry that reads as "class cancelled + new
+class"; slot by slot it is one lesson that moved rooms.
+
+`TimetableSlots` (in `domain`) holds that second reading and both consumers apply it:
+
+- `TimetableHtmlGenerator.collapseSlots` merges the pair into one card, annotating `Remplace :`
+  only when the superseding entry is a *different* subject;
+- `TimetableChanges` buckets the diff the same way, so `NotificationPayloadBuilder` reports a room
+  change as `🔀 Mathématiques — mer. 9/09 08h00 · salle B303 → B203` at NORMAL priority instead of
+  `✗ Mathématiques Cours annulé` at HIGH.
+
+The superseder is picked from the entries sharing a start time, **same subject first** (so a room
+change resolves to its own lesson rather than to an unrelated class at the same hour), and manual
+entries are never candidates — a synthetic eval marker must not make a real cancellation look
+maintained.
+
+`NotificationPayloadBuilder.build` therefore takes the **current timetable snapshot** as its last
+argument: the entry holding a slot need not appear in the diff at all (Pronote sometimes only adds
+the ghost), so the diff alone cannot tell a cancellation from a room change. The five-argument
+overload falls back to the diff's own entries and is for tests.
 
 ---
 

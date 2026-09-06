@@ -298,4 +298,135 @@ class NotificationPayloadBuilderTest {
         assertTrue(p.body().contains("Eval chap 3"));
         assertTrue(p.body().contains("[Trimestre 2]"));
     }
+
+    // -------------------------------------------------------------------------
+    // Slot reading: cancelled ghosts vs. real cancellations
+    // -------------------------------------------------------------------------
+
+    /** Builds an entry with an explicit id, so two can share one start time. */
+    private static TimetableEntry slotEntry(String id, String subject, LocalDateTime start,
+                                            EntryStatus status, String room) {
+        TimetableEntry e = new TimetableEntry();
+        e.setId(id);
+        e.setSubject(subject);
+        e.setEnrichedSubject(subject);
+        e.setStartTime(start);
+        e.setEndTime(start.plusHours(1));
+        e.setStatus(status);
+        e.setRoom(room);
+        return e;
+    }
+
+    @Test
+    void roomChange_isReportedAsAChange_notACancellation() {
+        // Pronote's real shape for a room change: the original slot arrives as a new CANCELLED
+        // ghost, while the live entry is modified in place with the new room.
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 8, 0);
+        TimetableEntry ghost = slotEntry("MATHS@2030-05-06T08:00:CANCELLED", "SYN_MATHS", start,
+                EntryStatus.CANCELLED, "B303 maths");
+        ghost.setStatusLabel("Cours annulé");
+        TimetableEntry current = slotEntry("MATHS@2030-05-06T08:00:NORMAL", "SYN_MATHS", start,
+                EntryStatus.NORMAL, "B203 info");
+        current.setStatusLabel("Changement de salle");
+
+        Map<TimetableEntry, List<FieldChange>> modified = new LinkedHashMap<>();
+        modified.put(current, List.of(new FieldChange("room", "B303 maths", "B203 info")));
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(List.of(ghost), List.of(), modified);
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(ghost, current));
+
+        assertFalse(p.title().contains("✗"), "room change must not read as cancelled: " + p.title());
+        assertTrue(p.title().startsWith("🔀 SYN_MATHS salle B203 info"), "got: " + p.title());
+        assertEquals(NotificationPayload.Priority.NORMAL, p.priority());
+        // One line, not a cancellation plus a modification.
+        assertEquals(1, p.body().lines().count(), "got: " + p.body());
+        assertTrue(p.body().contains("salle B303 maths → B203 info"), "got: " + p.body());
+    }
+
+    @Test
+    void roomChange_resolvesEvenWithoutASnapshot() {
+        // The 5-arg overload falls back to the diff's own entries, which covers this shape.
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 8, 0);
+        TimetableEntry ghost = slotEntry("g", "SYN_MATHS", start, EntryStatus.CANCELLED, "B303");
+        TimetableEntry current = slotEntry("c", "SYN_MATHS", start, EntryStatus.NORMAL, "B203");
+
+        Map<TimetableEntry, List<FieldChange>> modified = new LinkedHashMap<>();
+        modified.put(current, List.of(new FieldChange("room", "B303", "B203")));
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(List.of(ghost), List.of(), modified);
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty());
+
+        assertTrue(p.title().startsWith("🔀 "), "got: " + p.title());
+        assertEquals(NotificationPayload.Priority.NORMAL, p.priority());
+    }
+
+    @Test
+    void unchangedLessonInTheSlot_stillSuppressesTheGhost() {
+        // The live entry is untouched by the diff — only the snapshot reveals it holds the slot.
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 8, 0);
+        TimetableEntry ghost = slotEntry("g", "SYN_MATHS", start, EntryStatus.CANCELLED, "B303");
+        TimetableEntry current = slotEntry("c", "SYN_MATHS", start, EntryStatus.NORMAL, "B203");
+        current.setStatusLabel("Changement de salle");
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(List.of(ghost), List.of(), Map.of());
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(ghost, current));
+
+        assertFalse(p.title().contains("✗"), "got: " + p.title());
+        assertTrue(p.body().startsWith("🔀 SYN_MATHS"), "got: " + p.body());
+    }
+
+    @Test
+    void replacementClass_namesBothSubjects() {
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 8, 0);
+        TimetableEntry ghost = slotEntry("g", "SYN_MATHS", start, EntryStatus.CANCELLED, "B303");
+        TimetableEntry current = slotEntry("c", "SYN_ANGLAIS", start, EntryStatus.NORMAL, "A101");
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(
+                List.of(ghost, current), List.of(), Map.of());
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(ghost, current));
+
+        assertTrue(p.title().startsWith("🔄 SYN_ANGLAIS remplace SYN_MATHS"), "got: " + p.title());
+        assertEquals(NotificationPayload.Priority.HIGH, p.priority());
+        // The replacement's own "+" line is folded into the pairing.
+        assertEquals(1, p.body().lines().count(), "got: " + p.body());
+        assertTrue(p.body().contains("(A101)"), "got: " + p.body());
+    }
+
+    @Test
+    void cancellationWithNothingInTheSlot_staysACancellation() {
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 8, 0);
+        TimetableEntry ghost = slotEntry("g", "SYN_MATHS", start, EntryStatus.CANCELLED, "B303");
+        ghost.setStatusLabel("Prof. absent");
+        TimetableEntry elsewhere = slotEntry("o", "SYN_ANGLAIS", start.plusHours(2),
+                EntryStatus.NORMAL, "A101");
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(List.of(ghost), List.of(), Map.of());
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(ghost, elsewhere));
+
+        assertTrue(p.title().startsWith("✗ SYN_MATHS Prof. absent"), "got: " + p.title());
+        assertEquals(NotificationPayload.Priority.HIGH, p.priority());
+        assertTrue(p.body().contains("Prof. absent"), "got: " + p.body());
+    }
+
+    @Test
+    void teacherSubstitution_readsAsAChange() {
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 8, 0);
+        TimetableEntry ghost = slotEntry("g", "SYN_MATHS", start, EntryStatus.CANCELLED, "B303");
+        ghost.setTeacher("SYN_PROF_A");
+        TimetableEntry current = slotEntry("c", "SYN_MATHS", start, EntryStatus.NORMAL, "B303");
+        current.setTeacher("SYN_PROF_B");
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(
+                List.of(ghost, current), List.of(), Map.of());
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(ghost, current));
+
+        assertTrue(p.title().contains("prof. SYN_PROF_B"), "got: " + p.title());
+        assertTrue(p.body().contains("prof. SYN_PROF_A → SYN_PROF_B"), "got: " + p.body());
+    }
 }
