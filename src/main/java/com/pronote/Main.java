@@ -17,6 +17,7 @@ import com.pronote.domain.Grade;
 import com.pronote.domain.SchoolLifeEvent;
 import com.pronote.domain.TimetableEntry;
 import com.pronote.notification.*;
+import com.pronote.persistence.AssignmentDiffFilter;
 import com.pronote.persistence.DiffEngine;
 import com.pronote.persistence.DiffReporter;
 import com.pronote.persistence.DiffResult;
@@ -279,6 +280,13 @@ public class Main {
                 ? diffEngine.diff(prevAssignments.get(), assignments) : emptyDiff();
         DiffResult<TimetableEntry> timetableDiff = prevTimetable.isPresent()
                 ? diffEngine.diff(prevTimetable.get(), timetable) : emptyDiff();
+
+        // Drop homework that only left the retrieval window: every Monday the fetch range
+        // starts a week later, so all of last week's assignments vanish from the response at
+        // once and would otherwise be announced as deletions.
+        if (features.isAssignments() && prevAssignments.isPresent()) {
+            assignmentDiff = new AssignmentDiffFilter().filter(assignmentDiff, LocalDate.now());
+        }
 
         // Apply smart timetable filtering: suppress past items and bulk normal additions
         // for the furthest-future week when it first enters the retrieval window.
@@ -639,6 +647,10 @@ public class Main {
                 ? diffEngine.diff(prevAssignments.get(), assignments) : emptyDiff();
         DiffResult<TimetableEntry> timetableDiff = prevTimetable.isPresent()
                 ? diffEngine.diff(prevTimetable.get(), timetable) : emptyDiff();
+
+        if (features.isAssignments() && prevAssignments.isPresent()) {
+            assignmentDiff = new AssignmentDiffFilter().filter(assignmentDiff, LocalDate.now());
+        }
 
         if (features.isTimetable() && prevTimetable.isPresent()) {
             LocalDate furthestWeekStart = timetable.stream()

@@ -68,6 +68,7 @@ Main (runFetch / runViews / runDiff / runValidate)
  ├── ManualAttachmentStager    → offline: copies manual-entry attachment files into the same tree
  ├── SnapshotStore             → read/write latest.json + archive/, per data type
  ├── DiffEngine                → field-level comparison via Jackson tree model
+ ├── AssignmentDiffFilter      → suppresses past-due removals/modifications (weekly fetch-window roll)
  ├── TimetableDiffFilter       → suppresses past items + bulk normal additions in newly-discovered weeks
  ├── DiffReporter              → writes diff-latest.json + diff-history.log every run
  ├── CompositeNotifier         → fan-out to NtfyNotifier + EmailNotifier (per-channel failure non-fatal)
@@ -109,6 +110,7 @@ All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counte
 | `domain` | `AttachmentRef` | Attachment metadata: `stableId`, `fileName`, `uploadedFile`, `localPath`, `mimeType`; transient `downloadUrl` and `sourcePath` (`@JsonIgnore` — never persisted) |
 | `persistence` | `SnapshotStore` | Write `latest.json`, archive old, purge expired; `loadLatest` / `loadPrevious` |
 | `persistence` | `DiffEngine` | Generic field-level diff via `jackson.valueToTree()`; registers `AttachmentRefDiffMixin` to exclude runtime fields from comparison |
+| `persistence` | `AssignmentDiffFilter` | Post-diff suppression: drop removed/modified assignments whose due date has passed — they only fell out of the fetch window. Additions are kept. |
 | `persistence` | `TimetableDiffFilter` | Post-diff suppression: drop past items, drop bulk normal additions in newly-discovered furthest week. `isEval=true` entries always kept (user needs lead time). |
 | `persistence` | `DiffReporter` | Writes `data/diff-latest.json` + appends to `data/diff-history.log` every run, regardless of notifications |
 | `notification` | `TimetableChanges` | Buckets a timetable diff by slot via `TimetableSlots`: genuine cancellations, replacements, maintained-but-changed lessons, new evals, plain adds/removes/modifications. Each diff entry lands in exactly one bucket |
