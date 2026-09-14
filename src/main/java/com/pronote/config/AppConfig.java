@@ -524,9 +524,19 @@ public class AppConfig {
      */
     public static class ManualEntriesConfig {
         private String file = "./manual-entries.yaml";
+        /**
+         * Base directory for relative attachment paths declared in {@code manual-entries.yaml}.
+         * A bare filename in an {@code attachments:} entry resolves against this directory, so
+         * the YAML does not have to carry absolute paths. Absolute paths and {@code ~/} paths
+         * in the YAML are used as-is and ignore this setting.
+         */
+        private String attachmentDir = "./manual-attachments";
 
         public String getFile() { return file; }
         public void setFile(String file) { this.file = file; }
+
+        public String getAttachmentDir() { return attachmentDir; }
+        public void setAttachmentDir(String attachmentDir) { this.attachmentDir = attachmentDir; }
     }
 
     /** A single subject-enrichment mapping rule. {@code teacher} is optional. */

@@ -11,6 +11,7 @@ import com.pronote.config.ConfigLoader;
 import com.pronote.config.ManualEntryLoader;
 import com.pronote.config.SubjectEnricher;
 import com.pronote.domain.Assignment;
+import com.pronote.domain.AttachmentRef;
 import com.pronote.domain.CompetenceEvaluation;
 import com.pronote.domain.Grade;
 import com.pronote.domain.SchoolLifeEvent;
@@ -28,6 +29,7 @@ import com.pronote.scraper.AssignmentTeacherResolver;
 import com.pronote.scraper.AttachmentDownloader;
 import com.pronote.scraper.EvaluationScraper;
 import com.pronote.scraper.GradeScraper;
+import com.pronote.scraper.ManualAttachmentStager;
 import com.pronote.scraper.SchoolLifeScraper;
 import com.pronote.scraper.TimetableScraper;
 import com.pronote.views.AssignmentViewRenderer;
@@ -230,11 +232,19 @@ public class Main {
 
         // ---- 4b. Merge manual entries (from manual-entries.yaml, if present) ----
         ManualEntryLoader.ManualEntries manualEntries = ManualEntryLoader.load(
-                Path.of(config.getManualEntries().getFile()), subjectEnricher);
-        if (features.isAssignments() && !manualEntries.getAssignments().isEmpty()) {
-            List<Assignment> merged = new ArrayList<>(assignments);
-            merged.addAll(manualEntries.getAssignments());
-            assignments = merged;
+                Path.of(config.getManualEntries().getFile()), subjectEnricher,
+                Path.of(config.getManualEntries().getAttachmentDir()));
+        if (features.isAssignments()) {
+            if (!manualEntries.getAssignments().isEmpty()) {
+                List<Assignment> merged = new ArrayList<>(assignments);
+                merged.addAll(manualEntries.getAssignments());
+                assignments = merged;
+            }
+            // Copy declared attachment files into the attachments tree before the diff, so the
+            // stager — not the Pronote downloader — owns them, and so localPath is set for the
+            // snapshot write and the view render below. Called even with no manual assignments,
+            // which is what prunes the files of entries just deleted from the YAML.
+            manualAttachmentStager(dataDir).stage(assignments);
         }
         if (features.isTimetable() && !manualEntries.getUpcomingEvals().isEmpty()) {
             AssignmentTeacherResolver.resolveManualEvalTimes(manualEntries.getUpcomingEvals(), timetable);
@@ -439,7 +449,8 @@ public class Main {
         SnapshotStore snapshotStore = new SnapshotStore(dataDir, config.getData().getArchiveRetainDays());
         SubjectEnricher enricher = new SubjectEnricher(config.getSubjectEnrichment());
         ManualEntryLoader.ManualEntries manualEntries = ManualEntryLoader.load(
-                Path.of(config.getManualEntries().getFile()), enricher);
+                Path.of(config.getManualEntries().getFile()), enricher,
+                Path.of(config.getManualEntries().getAttachmentDir()));
 
         // Pre-load assignments snapshot — used to annotate timetable views even when the
         // standalone assignment view is disabled. Silent if the snapshot file is missing.
@@ -449,8 +460,14 @@ public class Main {
         if (features.isAssignments()) {
             // Strip manual entries already baked into the snapshot (saved by runFetch),
             // then re-inject fresh from YAML so edits take effect without a full fetch.
-            assignmentsData.removeIf(a -> a.getId() != null && a.getId().startsWith("manual:"));
+            assignmentsData.removeIf(a -> a.getId() != null
+                    && a.getId().startsWith(ManualEntryLoader.ID_PREFIX));
             assignmentsData.addAll(manualEntries.getAssignments());
+
+            // localPath is transient-by-consequence for manual attachments: the refs were just
+            // rebuilt from YAML, so nothing points at the staged files until we stage again.
+            // This is also what makes `make views` pick up a newly-added screenshot offline.
+            manualAttachmentStager(dataDir).stage(assignmentsData);
         }
 
         // Pre-load timetable snapshot — needed for timetable views and to inject upcoming
@@ -460,7 +477,8 @@ public class Main {
         List<TimetableEntry> timetableData = new ArrayList<>(timetableSnap.orElse(List.of()));
         if (features.isTimetable()) {
             // Same de-duplication: strip snapshot-persisted manual evals, re-inject from YAML.
-            timetableData.removeIf(e -> e.getId() != null && e.getId().startsWith("manual:"));
+            timetableData.removeIf(e -> e.getId() != null
+                    && e.getId().startsWith(ManualEntryLoader.ID_PREFIX));
             if (!manualEntries.getUpcomingEvals().isEmpty()) {
                 AssignmentTeacherResolver.resolveManualEvalTimes(manualEntries.getUpcomingEvals(), timetableData);
                 timetableData.addAll(manualEntries.getUpcomingEvals());
@@ -731,7 +749,9 @@ public class Main {
 
         // ManualEntryLoader.load throws ConfigException on parse/required-field errors —
         // let it propagate to main(), which logs and exits 1.
-        ManualEntryLoader.ManualEntries manual = ManualEntryLoader.load(file, enricher);
+        Path attachmentBaseDir = Path.of(config.getManualEntries().getAttachmentDir());
+        ManualEntryLoader.ManualEntries manual =
+                ManualEntryLoader.load(file, enricher, attachmentBaseDir);
 
         // Build the set of subjects seen in the latest timetable snapshot to flag typos.
         // Empty when the user has never run --mode fetch — in that case we skip the check
@@ -757,6 +777,7 @@ public class Main {
             log.info("  {} | subject='{}' → '{}' | dueDate={} | done={}{}",
                     a.getId(), a.getSubject(), a.getEnrichedSubject(),
                     a.getDueDate(), a.isDone(), suffix);
+            warnings += reportAttachments(a);
         }
 
         log.info("─── Upcoming evaluations ({}) ───", manual.getUpcomingEvals().size());
@@ -779,6 +800,36 @@ public class Main {
         } else {
             log.warn("Manual entries valid — {} warning(s); review the subject strings above.", warnings);
         }
+    }
+
+    /**
+     * Logs one line per declared attachment of a manual assignment and returns the number of
+     * warnings raised. A {@code file:} attachment whose source is missing is the one manual-entry
+     * mistake that silently produces a card with no attachment at all, so validate resolves the
+     * path and checks it here rather than waiting for the WARN in the next scheduled run.
+     */
+    private static int reportAttachments(Assignment a) {
+        int warnings = 0;
+        for (AttachmentRef ref : a.getAttachments()) {
+            if (!ref.isUploadedFile()) {
+                log.info("      \uD83D\uDD17 {} → {}", ref.getFileName(), ref.getUrl());
+                continue;
+            }
+            Path source = Path.of(ref.getSourcePath());
+            if (Files.isRegularFile(source)) {
+                log.info("      \uD83D\uDCCE {} ← {}", ref.getFileName(), source);
+            } else {
+                log.warn("      \uD83D\uDCCE {} ← {}  \u26A0 file not found", ref.getFileName(), source);
+                warnings++;
+            }
+        }
+        return warnings;
+    }
+
+    /** Attachments live under the assignments snapshot dir — one place, shared by both modes. */
+    private static ManualAttachmentStager manualAttachmentStager(Path dataDir) {
+        return new ManualAttachmentStager(
+                dataDir.resolve("snapshots").resolve("assignments").resolve("attachments"));
     }
 
     /**

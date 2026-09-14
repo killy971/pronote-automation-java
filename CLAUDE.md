@@ -56,7 +56,7 @@ Target runtime: **Raspberry Pi (Raspbian)**, triggered by two systemd timers —
 ```
 Main (runFetch / runViews / runDiff / runValidate)
  ├── ConfigLoader              → loads config.yaml (SnakeYAML)
- ├── ManualEntryLoader         → loads manual-entries.yaml (assignments + upcoming evals)
+ ├── ManualEntryLoader         → loads manual-entries.yaml (assignments + upcoming evals + attachments)
  ├── SubjectEnricher           → resolves enrichedSubject from subject (+optional teacher)
  ├── LockoutGuard              → halts job after N consecutive login failures (self-clearing)
  ├── SessionStore              → load/save session.json (persists AES keys + cookies)
@@ -65,6 +65,7 @@ Main (runFetch / runViews / runDiff / runValidate)
  ├── Scrapers                  → AssignmentScraper, TimetableScraper, GradeScraper,
  │                               EvaluationScraper, SchoolLifeScraper
  ├── AttachmentDownloader      → idempotent download of G=1 attachments; respects rate limiting
+ ├── ManualAttachmentStager    → offline: copies manual-entry attachment files into the same tree
  ├── SnapshotStore             → read/write latest.json + archive/, per data type
  ├── DiffEngine                → field-level comparison via Jackson tree model
  ├── TimetableDiffFilter       → suppresses past items + bulk normal additions in newly-discovered weeks
@@ -87,7 +88,7 @@ All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counte
 |---|---|---|
 | `cli` | `CliOptions` | Parses `--config`, `--mode`, `--features`, `--dry-run`; `applyFeatureOverride` mutates `FeaturesConfig`; throws `IllegalArgumentException` on unknown feature names |
 | `config` | `ConfigLoader` | Load + validate YAML; fail fast |
-| `config` | `ManualEntryLoader` | Parse `manual-entries.yaml` into `Assignment` + synthetic `TimetableEntry(isEval=true)` lists. Stable IDs prefixed `manual:`; explicit `id:` field optional. |
+| `config` | `ManualEntryLoader` | Parse `manual-entries.yaml` into `Assignment` + synthetic `TimetableEntry(isEval=true)` lists. Stable IDs prefixed `manual:` (`ManualEntryLoader.ID_PREFIX`); explicit `id:` field optional. Also parses the `attachments:` block into `AttachmentRef`s. |
 | `config` | `SubjectEnricher` | Resolve `enrichedSubject` from raw subject (+optional teacher); two-pass rule eval, strips teacher prefixes ("M.", "Mme") |
 | `safety` | `LockoutGuard` | Track login failures in `data/lockout.json`; auto-clear after the cooldown; flag the once-per-episode alert |
 | `safety` | `RateLimiter` | Sleep `minDelay + random(jitter)` before each request |
@@ -98,12 +99,14 @@ All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counte
 | `client` | `PronoteHttpClient` | Encrypted POST: builds envelope, calls rate limiter, decrypts response; also exposes `download()` for rate-limited binary GETs |
 | `scraper` | `AssignmentScraper` | `ListeTravailAFaire` → `Assignment`; builds `AttachmentRef` list |
 | `scraper` | `AttachmentDownloader` | Idempotent G=1 attachment download; resolves `localPath` from disk; respects rate limiter |
+| `scraper` | `ManualAttachmentStager` | Offline counterpart: copies `manual-entries.yaml` attachment files into the same tree, prunes orphans. No session, no network — runs in `views` mode too |
+| `scraper` | `AttachmentPaths` | The one definition of the on-disk attachment layout, shared by the downloader and the stager |
 | `scraper` | `AssignmentTeacherResolver` | Re-enriches assignments with teacher inferred from timetable (subject + date lookup, returns null when ambiguous); also resolves placeholder start/end times on manual eval entries against the live timetable |
 | `scraper` | `TimetableScraper` | `PageEmploiDuTemps` per-week → `TimetableEntry`; reads `estEval`/`estDevoir`/`originesCategorie` from `cahierDeTextes.V` |
 | `scraper` | `GradeScraper`, `EvaluationScraper`, `SchoolLifeScraper` | Per-type scrapers, same pattern |
 | `domain` | `Assignment`, `TimetableEntry`, `Grade`, `CompetenceEvaluation`, `SchoolLifeEvent` | Pure data, Jackson-serializable, implements `Identifiable` |
 | `domain` | `TimetableSlots` | Slot-level reading of a timetable: groups entries by start time and resolves which entry supersedes a cancelled one. Shared by the timetable view and the notification builder — see "Cancelled ghosts" below |
-| `domain` | `AttachmentRef` | Attachment metadata: `stableId`, `fileName`, `uploadedFile`, `localPath`, `mimeType`; transient `downloadUrl` (`@JsonIgnore` — never persisted) |
+| `domain` | `AttachmentRef` | Attachment metadata: `stableId`, `fileName`, `uploadedFile`, `localPath`, `mimeType`; transient `downloadUrl` and `sourcePath` (`@JsonIgnore` — never persisted) |
 | `persistence` | `SnapshotStore` | Write `latest.json`, archive old, purge expired; `loadLatest` / `loadPrevious` |
 | `persistence` | `DiffEngine` | Generic field-level diff via `jackson.valueToTree()`; registers `AttachmentRefDiffMixin` to exclude runtime fields from comparison |
 | `persistence` | `TimetableDiffFilter` | Post-diff suppression: drop past items, drop bulk normal additions in newly-discovered furthest week. `isEval=true` entries always kept (user needs lead time). |
@@ -317,6 +320,7 @@ The `N` field in `ListePieceJointe` items looks like `37#<token>` where the toke
 - `localPath` — absolute path after download; null if not yet downloaded (excluded from diff)
 - `mimeType` — from Content-Type or `Files.probeContentType`; null if unknown (excluded from diff)
 - `downloadUrl` — **transient, `@JsonIgnore`** — the session-scoped G=1 download URL; never persisted, never compared
+- `sourcePath` — **transient, `@JsonIgnore`** — the local file a manual-entry attachment is copied from; re-derived from the YAML each run, so it is never persisted or compared either
 
 `DiffEngine` registers `AttachmentRefDiffMixin` which excludes `localPath`, `mimeType`, and `url` from field comparison, so only semantic changes (`stableId`, `fileName`, `uploadedFile`) trigger diff events.
 
@@ -324,6 +328,10 @@ The `N` field in `ListePieceJointe` items looks like `37#<token>` where the toke
 ```
 data/snapshots/assignments/attachments/<sanitized-assignmentId>/<sanitizedFileName>
 ```
+
+That layout lives in `AttachmentPaths` and is shared with `ManualAttachmentStager` — the assignment
+view builds its `href` by relativizing `localPath`, so a mismatch between the two writers would
+produce links that silently 404.
 
 ### DO
 - Always call through `PronoteHttpClient.encryptedPost()` — never bypass it.
@@ -490,6 +498,49 @@ Key behaviours:
 - **Manual evals get their times resolved against the timetable** (`resolveManualEvalTimes` in `Main`): subject + teacher match (most specific), then subject-only fallback, then 08:00–09:00 placeholder.
 - **Manual assignments with `teacher:` set skip the timetable-based teacher lookup** in `reEnrichAssignmentsWithTeacher`, so the user's explicit choice always wins.
 
+### Manual attachments
+
+An `assignments:` entry can carry an `attachments:` list — local files (a screenshot, a photo of
+the board) or plain links:
+
+```yaml
+- id: math-ds-fractions
+  subject: MATHEMATIQUES
+  description: Refaire les exercices ratés
+  dueDate: 2026-04-30
+  attachments:
+    - ds-page1.png                        # shorthand: file under manualEntries.attachmentDir
+    - file: ~/Pictures/tableau.jpg        # absolute and ~/ paths are taken as-is
+      label: Photo du tableau             # renames it; source extension appended if the label has none
+    - url: https://example.invalid/x      # a link — nothing is copied
+      label: Corrigé en ligne
+```
+
+A `file:` entry becomes an `AttachmentRef` with `uploadedFile=true`, mirroring Pronote's G=1
+attachments; a `url:` entry mirrors G=0. Relative paths resolve against
+`manualEntries.attachmentDir` (default `./manual-attachments`, gitignored — the files are student
+work).
+
+`ManualAttachmentStager` copies the declared files into the same tree the downloader writes to, so
+everything downstream — the view's relative `href`, `GitPublisher`'s attachment mirror — works
+unchanged. It holds **no session and makes no network call**, which is what lets it run in `views`
+mode: manual refs are rebuilt from YAML on every run, so without a re-stage `make views` would
+render manual cards with dead links.
+
+- **Copy rule.** Copies when the target is absent, or the source's size/mtime differs. Pronote
+  files are immutable so `AttachmentDownloader` can stop at an existence check; a screenshot can be
+  re-cropped in place under the same name, and a pure existence check would pin the stale copy.
+- **Pruning.** A file dropped from the list, or the whole directory of a deleted manual entry, is
+  removed. Confined to directories whose name derives from a `manual:` ID — Pronote-downloaded
+  attachments are never touched. `stage()` therefore requires the *complete* assignment list.
+- **No diff churn.** `localPath` and `mimeType` are diff-excluded and `stableId` does not depend on
+  file contents, so staging and re-staging never notify. Adding or removing an attachment *does*
+  change the ref list, which is a genuine "modified" event.
+- **Give an entry with attachments a stable `id:`** — the staged files live in a directory named
+  after it, so an ID change orphans and re-copies them.
+- A missing source file is a WARN, not a failure: the ref keeps a null `localPath` and the view
+  omits it. `make validate` resolves and checks every declared path up front.
+
 To verify a YAML edit without doing a full run, use `make validate` (`--mode validate`). It parses, enriches, prints what would be merged, and warns when a subject string doesn't appear in the latest timetable snapshot (the most common typo).
 
 ---
@@ -566,7 +617,9 @@ data/
 │   ├── assignments/archive/*.json
 │   ├── assignments/attachments/
 │   │   └── <sanitized-assignmentId>/
-│   │       └── <sanitizedFileName>   ← downloaded G=1 files; idempotent across runs
+│   │       └── <sanitizedFileName>   ← downloaded G=1 files and staged manual attachments;
+│   │                                    idempotent across runs (dirs named manual_* are
+│   │                                    owned by manual-entries.yaml and pruned to match it)
 │   ├── timetable/latest.json
 │   ├── timetable/archive/*.json
 │   ├── grades/latest.json

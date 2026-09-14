@@ -13,6 +13,11 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  *       is set after a successful download.</li>
  * </ul>
  *
+ * <p>A third origin exists outside Pronote: attachments declared in
+ * {@code manual-entries.yaml}. These behave like G=1 files — {@code uploadedFile=true} and a
+ * {@code localPath} once staged — but are copied from a local path ({@link #sourcePath})
+ * rather than downloaded.
+ *
  * <p>Idempotency key: {@code stableId} is the Pronote {@code N} field, which is stable
  * across sessions (unlike the constructed download URL for G=1, which is AES-encrypted
  * with the current session key and therefore session-scoped).
@@ -55,6 +60,21 @@ public class AttachmentRef {
     private transient String downloadUrl;
 
     /**
+     * Local filesystem path of the source file for a manually-declared attachment.
+     *
+     * <p>Transient and {@code @JsonIgnore} for the same reasons as {@link #downloadUrl}:
+     * it is re-derived from {@code manual-entries.yaml} on every run and must never be
+     * persisted or compared. It is populated by {@code ManualEntryLoader} and consumed by
+     * {@code ManualAttachmentStager}, which copies the file into the attachments directory
+     * and sets {@link #localPath}.
+     *
+     * <p>Always {@code null} for Pronote-sourced attachments, which carry
+     * {@link #downloadUrl} instead.
+     */
+    @JsonIgnore
+    private transient String sourcePath;
+
+    /**
      * True if this is a Pronote-hosted uploaded file (G=1) that can be downloaded.
      * False if this is a hyperlink (G=0).
      */
@@ -85,6 +105,9 @@ public class AttachmentRef {
 
     public String getDownloadUrl()                        { return downloadUrl; }
     public void setDownloadUrl(String downloadUrl)        { this.downloadUrl = downloadUrl; }
+
+    public String getSourcePath()                         { return sourcePath; }
+    public void setSourcePath(String sourcePath)          { this.sourcePath = sourcePath; }
 
     public boolean isUploadedFile()                   { return uploadedFile; }
     public void setUploadedFile(boolean uploadedFile) { this.uploadedFile = uploadedFile; }

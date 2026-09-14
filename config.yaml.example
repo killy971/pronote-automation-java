@@ -135,6 +135,17 @@ assignmentView:
   # visually distinct from ones you've already seen. Set to 0 to disable the badge.
   newBadgeDays: 2
 
+manualEntries:
+  # Optional companion file for work and upcoming tests teachers haven't published yet.
+  # Silently ignored when absent. See manual-entries.yaml.example for the schema.
+  file: "./manual-entries.yaml"
+  # Base directory for relative attachment paths in manual-entries.yaml, so an entry can just
+  # say `- releve.png`. Absolute and ~/ paths in the YAML ignore this setting.
+  # Declared files are copied once into data/snapshots/assignments/attachments/ and linked from
+  # the assignment view exactly like Pronote's own attachments; a file re-saved under the same
+  # name is re-copied on the next run.
+  attachmentDir: "./manual-attachments"
+
 viewPublish:
   # Publish generated view files to a local GitHub Pages repository clone.
   # When enabled, timetable and assignment HTML files are copied into the repo,

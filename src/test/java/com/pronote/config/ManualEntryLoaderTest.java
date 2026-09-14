@@ -1,6 +1,7 @@
 package com.pronote.config;
 
 import com.pronote.domain.Assignment;
+import com.pronote.domain.AttachmentRef;
 import com.pronote.domain.TimetableEntry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -299,5 +300,144 @@ class ManualEntryLoaderTest {
         ManualEntryLoader.ManualEntries m = ManualEntryLoader.load(file, enr);
         assertEquals("Mathématiques", m.getAssignments().get(0).getEnrichedSubject());
         assertEquals("Mathématiques", m.getUpcomingEvals().get(0).getEnrichedSubject());
+    }
+
+    // -------------------------------------------------------------------------
+    // Attachments
+    // -------------------------------------------------------------------------
+
+    private static Path yamlWithAttachments(Path dir, String attachmentsBlock) throws IOException {
+        return writeYaml(dir, """
+                assignments:
+                  - id: syn-1
+                    subject: SYN_MATHS
+                    description: Exercices
+                    dueDate: 2030-05-06
+                    attachments:
+                """ + attachmentsBlock);
+    }
+
+    @Test
+    void attachment_shorthandString_resolvesAgainstBaseDir(@TempDir Path dir) throws IOException {
+        Path file = yamlWithAttachments(dir, "      - releve.png\n");
+        Path base = dir.resolve("manual-attachments");
+
+        Assignment a = ManualEntryLoader.load(file, enricher(), base).getAssignments().get(0);
+
+        assertEquals(1, a.getAttachments().size());
+        AttachmentRef ref = a.getAttachments().get(0);
+        assertEquals("releve.png", ref.getFileName());
+        assertTrue(ref.isUploadedFile());
+        assertEquals(base.resolve("releve.png").toAbsolutePath().toString(), ref.getSourcePath());
+        // stableId must be session-independent and unique per assignment
+        assertEquals("manual:syn-1|releve.png", ref.getStableId());
+        assertNull(ref.getUrl());
+    }
+
+    @Test
+    void attachment_absolutePath_ignoresBaseDir(@TempDir Path dir) throws IOException {
+        Path elsewhere = dir.resolve("elsewhere").resolve("photo.jpg").toAbsolutePath();
+        Path file = yamlWithAttachments(dir, "      - file: " + elsewhere + "\n");
+
+        Assignment a = ManualEntryLoader.load(file, enricher(), dir.resolve("base"))
+                .getAssignments().get(0);
+
+        assertEquals(elsewhere.toString(), a.getAttachments().get(0).getSourcePath());
+    }
+
+    @Test
+    void attachment_label_renamesFileAndKeepsSourceExtension(@TempDir Path dir) throws IOException {
+        Path file = yamlWithAttachments(dir, """
+                      - file: IMG_1234.jpg
+                        label: Photo du tableau
+                """);
+
+        AttachmentRef ref = ManualEntryLoader.load(file, enricher(), dir)
+                .getAssignments().get(0).getAttachments().get(0);
+
+        // The extension is what lets the browser open the staged copy.
+        assertEquals("Photo du tableau.jpg", ref.getFileName());
+    }
+
+    @Test
+    void attachment_labelWithOwnExtension_isUsedVerbatim(@TempDir Path dir) throws IOException {
+        Path file = yamlWithAttachments(dir, """
+                      - file: IMG_1234.jpg
+                        label: tableau.jpeg
+                """);
+
+        assertEquals("tableau.jpeg", ManualEntryLoader.load(file, enricher(), dir)
+                .getAssignments().get(0).getAttachments().get(0).getFileName());
+    }
+
+    @Test
+    void attachment_url_producesHyperlinkRefWithNoSourcePath(@TempDir Path dir) throws IOException {
+        Path file = yamlWithAttachments(dir, """
+                      - url: https://example.invalid/corrige
+                        label: Corrigé
+                """);
+
+        AttachmentRef ref = ManualEntryLoader.load(file, enricher(), dir)
+                .getAssignments().get(0).getAttachments().get(0);
+
+        assertFalse(ref.isUploadedFile());
+        assertEquals("https://example.invalid/corrige", ref.getUrl());
+        assertEquals("https://example.invalid/corrige", ref.getStableId());
+        assertEquals("Corrigé", ref.getFileName());
+        assertNull(ref.getSourcePath());
+    }
+
+    @Test
+    void attachment_unknownField_failsFastNamingTheKey(@TempDir Path dir) throws IOException {
+        Path file = yamlWithAttachments(dir, "      - path: releve.png\n");
+
+        ConfigLoader.ConfigException ex = assertThrows(ConfigLoader.ConfigException.class,
+                () -> ManualEntryLoader.load(file, enricher(), dir));
+        assertTrue(ex.getMessage().contains("path"), ex.getMessage());
+    }
+
+    @Test
+    void attachment_bothFileAndUrl_failsFast(@TempDir Path dir) throws IOException {
+        Path file = yamlWithAttachments(dir, """
+                      - file: releve.png
+                        url: https://example.invalid/x
+                """);
+
+        assertThrows(ConfigLoader.ConfigException.class,
+                () -> ManualEntryLoader.load(file, enricher(), dir));
+    }
+
+    @Test
+    void attachment_neitherFileNorUrl_failsFast(@TempDir Path dir) throws IOException {
+        Path file = yamlWithAttachments(dir, "      - label: rien\n");
+
+        assertThrows(ConfigLoader.ConfigException.class,
+                () -> ManualEntryLoader.load(file, enricher(), dir));
+    }
+
+    @Test
+    void attachment_duplicateFileNames_failFast(@TempDir Path dir) throws IOException {
+        // Both would stage to the same target path — the second would silently overwrite.
+        Path file = yamlWithAttachments(dir, """
+                      - a/releve.png
+                      - b/releve.png
+                """);
+
+        ConfigLoader.ConfigException ex = assertThrows(ConfigLoader.ConfigException.class,
+                () -> ManualEntryLoader.load(file, enricher(), dir));
+        assertTrue(ex.getMessage().contains("releve.png"), ex.getMessage());
+    }
+
+    @Test
+    void assignmentWithoutAttachments_hasEmptyList(@TempDir Path dir) throws IOException {
+        Path file = writeYaml(dir, """
+                assignments:
+                  - subject: SYN_MATHS
+                    description: Exercices
+                    dueDate: 2030-05-06
+                """);
+
+        assertTrue(ManualEntryLoader.load(file, enricher(), dir)
+                .getAssignments().get(0).getAttachments().isEmpty());
     }
 }

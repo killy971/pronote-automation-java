@@ -41,7 +41,9 @@ import java.util.List;
  * </pre>
  *
  * <p>Per-assignment subdirectories prevent cross-assignment filename collisions.
- * The idempotency key is {@code attachmentsDir/<sanitizedAssignmentId>/<sanitizedFileName>}.
+ * The idempotency key is {@code attachmentsDir/<sanitizedAssignmentId>/<sanitizedFileName>};
+ * the layout itself lives in {@link AttachmentPaths}, shared with
+ * {@link ManualAttachmentStager}.
  */
 public class AttachmentDownloader {
 
@@ -66,7 +68,9 @@ public class AttachmentDownloader {
      * </ul>
      *
      * <p>G=0 (hyperlink) attachments are skipped — they are externally hosted
-     * and not downloaded.
+     * and not downloaded. Manual-entry attachments (those carrying a {@code sourcePath})
+     * are skipped too — {@link ManualAttachmentStager} copies those from the local
+     * filesystem.
      *
      * <p>This method is idempotent: calling it multiple times per run or across
      * runs produces the same result.
@@ -83,7 +87,9 @@ public class AttachmentDownloader {
 
         for (Assignment assignment : assignments) {
             for (AttachmentRef ref : assignment.getAttachments()) {
-                if (ref.isUploadedFile()) {
+                // sourcePath marks a manual-entry attachment: it is copied from disk by
+                // ManualAttachmentStager and has no Pronote download URL to fetch.
+                if (ref.isUploadedFile() && ref.getSourcePath() == null) {
                     downloadIfAbsent(assignment, ref);
                 }
             }
@@ -141,18 +147,6 @@ public class AttachmentDownloader {
      * The Pronote {@code N} field is intentionally not used here — it is session-scoped.
      */
     private Path resolveTargetPath(Assignment assignment, AttachmentRef ref) {
-        Path assignmentDir = attachmentsDir.resolve(sanitize(assignment.getId()));
-        return assignmentDir.resolve(sanitize(ref.getFileName()));
-    }
-
-    /**
-     * Sanitizes a string for use as a filename or directory name component.
-     * Replaces any character that is not alphanumeric, dot, hyphen, or underscore with {@code _}.
-     * Truncates to 120 characters to stay within filesystem limits.
-     */
-    private static String sanitize(String input) {
-        if (input == null || input.isBlank()) return "_";
-        String safe = input.replaceAll("[^a-zA-Z0-9._\\-]", "_");
-        return safe.length() > 120 ? safe.substring(0, 120) : safe;
+        return AttachmentPaths.target(attachmentsDir, assignment.getId(), ref.getFileName());
     }
 }

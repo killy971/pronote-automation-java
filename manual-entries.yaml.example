@@ -88,6 +88,30 @@ assignments:
     description: "Révision fractions équivalentes"
     dueDate: "2026-04-26"
 
+  # ── With attachments (screenshots, photos of the board, links) ───────────
+  # Each `file:` is copied ONCE into data/snapshots/assignments/attachments/<id>/ and linked
+  # from the assignment view like any Pronote attachment. Re-saving the source under the same
+  # name (a re-cropped screenshot) re-copies it on the next run; removing it from this list
+  # deletes the staged copy. Bare filenames resolve against manualEntries.attachmentDir in
+  # config.yaml (default ./manual-attachments).
+  #
+  # Give the entry a stable `id:` when it has attachments — the staged files live in a
+  # directory named after it, so an ID change orphans and re-copies them.
+  - id: math-ds-fractions
+    subject: "MATHEMATIQUES"
+    description: "Refaire les exercices ratés du DS (voir photos)"
+    dueDate: "2026-04-30"
+    attachments:
+      # Shorthand: a file under manualEntries.attachmentDir. Displayed under its own name.
+      - ds-fractions-page1.png
+      # Explicit path — absolute and ~/ paths are taken as-is. `label:` renames it for display;
+      # the source extension is appended when the label has none, so the link still opens.
+      - file: ~/Pictures/tableau-2026-04-28.jpg
+        label: "Photo du tableau"
+      # A link instead of a file: nothing is copied, the view links straight out.
+      - url: "https://example.invalid/corrige-fractions"
+        label: "Corrigé en ligne"
+
   # ── Histoire — teacher disambiguates enrichment (→ "Histoire") ───────────
   - subject: "HISTOIRE-GEOGRAPHIE"
     description: "Apprendre le cours sur la naissance du monothéisme"

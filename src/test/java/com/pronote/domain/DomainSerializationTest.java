@@ -40,6 +40,9 @@ class DomainSerializationTest {
         ref.setMimeType("application/pdf");
         // downloadUrl is @JsonIgnore — should NOT survive a round-trip
         ref.setDownloadUrl("https://example.invalid/session-scoped");
+        // sourcePath is @JsonIgnore for the same reason: manual attachment refs are rebuilt
+        // from manual-entries.yaml on every run, so persisting it would only go stale.
+        ref.setSourcePath("/home/synthetic/manual-attachments/file.pdf");
         original.setAttachments(List.of(ref));
 
         String json = MAPPER.writeValueAsString(original);
@@ -64,6 +67,8 @@ class DomainSerializationTest {
         // Session-scoped URL must not be persisted
         assertNull(restoredRef.getDownloadUrl(),
                 "downloadUrl is @JsonIgnore and must not appear in the snapshot");
+        assertNull(restoredRef.getSourcePath(),
+                "sourcePath is @JsonIgnore and must not appear in the snapshot");
     }
 
     @Test

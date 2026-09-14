@@ -1,6 +1,7 @@
 package com.pronote.config;
 
 import com.pronote.domain.Assignment;
+import com.pronote.domain.AttachmentRef;
 import com.pronote.domain.EntryStatus;
 import com.pronote.domain.TimetableEntry;
 import org.slf4j.Logger;
@@ -15,7 +16,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Loads manually-declared assignments and upcoming evaluations from a YAML file.
@@ -49,9 +53,25 @@ public class ManualEntryLoader {
 
     private static final Logger log = LoggerFactory.getLogger(ManualEntryLoader.class);
 
+    /** Prefix on every manual entry ID, keeping them distinct from Pronote's own IDs. */
+    public static final String ID_PREFIX = "manual:";
+
     private ManualEntryLoader() {}
 
+    /**
+     * Loads manual entries, resolving relative attachment paths against the current working
+     * directory. Prefer {@link #load(Path, SubjectEnricher, Path)}, which honours the configured
+     * {@code manualEntries.attachmentDir}.
+     */
     public static ManualEntries load(Path filePath, SubjectEnricher enricher) {
+        return load(filePath, enricher, null);
+    }
+
+    /**
+     * @param attachmentBaseDir base directory for relative {@code attachments:} file paths;
+     *                          null resolves them against the current working directory
+     */
+    public static ManualEntries load(Path filePath, SubjectEnricher enricher, Path attachmentBaseDir) {
         if (!Files.exists(filePath)) {
             log.debug("No manual entries file at {} — skipping", filePath.toAbsolutePath());
             return new ManualEntries(List.of(), List.of());
@@ -75,7 +95,7 @@ public class ManualEntryLoader {
         List<Assignment> assignments = new ArrayList<>();
         if (file.getAssignments() != null) {
             for (AssignmentEntry entry : file.getAssignments()) {
-                assignments.add(toAssignment(entry, enricher));
+                assignments.add(toAssignment(entry, enricher, attachmentBaseDir));
             }
         }
 
@@ -91,7 +111,8 @@ public class ManualEntryLoader {
         return new ManualEntries(assignments, upcomingEvals);
     }
 
-    private static Assignment toAssignment(AssignmentEntry e, SubjectEnricher enricher) {
+    private static Assignment toAssignment(AssignmentEntry e, SubjectEnricher enricher,
+                                           Path attachmentBaseDir) {
         requireField(e.getSubject(), "subject", "assignment");
         requireField(e.getDescription(), "description", "assignment");
         requireField(e.getDueDate(), "dueDate", "assignment");
@@ -110,6 +131,7 @@ public class ManualEntryLoader {
         a.setDueDate(dueDate);
         a.setAssignedDate(assignedDate);
         a.setDone(e.isDone());
+        a.setAttachments(toAttachments(e.getAttachments(), a.getId(), attachmentBaseDir));
         return a;
     }
 
@@ -142,6 +164,149 @@ public class ManualEntryLoader {
         return entry;
     }
 
+    // -------------------------------------------------------------------------
+    // Attachments
+    // -------------------------------------------------------------------------
+
+    /**
+     * Converts the YAML {@code attachments:} list of one assignment into {@link AttachmentRef}s.
+     *
+     * <p>Two shapes are accepted, so the common case stays a one-liner:
+     * <pre>
+     *   attachments:
+     *     - releve.png                    # shorthand: a file, label defaults to its name
+     *     - file: ~/Pictures/tableau.jpg  # explicit file, optionally relabelled
+     *       label: Photo du tableau
+     *     - url: https://example.org/doc  # a hyperlink — nothing is copied
+     *       label: Corrigé en ligne
+     * </pre>
+     *
+     * <p>A {@code file:} entry becomes an uploaded-file ref, mirroring Pronote's G=1 attachments:
+     * {@code sourcePath} points at the declared file and {@code ManualAttachmentStager} copies it
+     * into the attachments tree, setting {@code localPath}. A {@code url:} entry becomes a
+     * hyperlink ref, mirroring G=0 — nothing is copied and {@code localPath} stays null.
+     *
+     * <p>The list is declared as {@code List<Object>} rather than a bean list because SnakeYAML
+     * cannot construct a bean from the scalar shorthand form; the shapes are validated here
+     * instead, which also lets a typo name the offending key.
+     */
+    private static List<AttachmentRef> toAttachments(List<Object> raw, String assignmentId,
+                                                     Path attachmentBaseDir) {
+        List<AttachmentRef> refs = new ArrayList<>();
+        if (raw == null) return refs;
+
+        Set<String> fileNames = new LinkedHashSet<>();
+        for (Object item : raw) {
+            AttachmentRef ref = (item instanceof String path)
+                    ? fileAttachment(path, null, assignmentId, attachmentBaseDir)
+                    : mappingAttachment(item, assignmentId, attachmentBaseDir);
+            if (!fileNames.add(ref.getFileName())) {
+                // Same name ⇒ same target path ⇒ the second copy would overwrite the first.
+                throw new ConfigLoader.ConfigException(
+                        "Manual assignment '" + assignmentId + "' has two attachments named '"
+                                + ref.getFileName() + "' — set a distinct 'label' on one of them");
+            }
+            refs.add(ref);
+        }
+        return refs;
+    }
+
+    /** Parses the mapping form of an attachment entry: {@code file:}/{@code url:} plus {@code label:}. */
+    private static AttachmentRef mappingAttachment(Object item, String assignmentId,
+                                                   Path attachmentBaseDir) {
+        if (!(item instanceof Map<?, ?> map)) {
+            throw new ConfigLoader.ConfigException(
+                    "Manual attachment of assignment '" + assignmentId + "' must be a file path or a "
+                            + "mapping with 'file:' or 'url:', got: " + item);
+        }
+        String file = null;
+        String url = null;
+        String label = null;
+        for (Map.Entry<?, ?> e : map.entrySet()) {
+            String key = String.valueOf(e.getKey());
+            String value = e.getValue() == null ? null : String.valueOf(e.getValue());
+            switch (key) {
+                case "file"  -> file = value;
+                case "url"   -> url = value;
+                case "label" -> label = value;
+                default -> throw new ConfigLoader.ConfigException(
+                        "Unknown attachment field '" + key + "' on manual assignment '"
+                                + assignmentId + "' — expected one of: file, url, label");
+            }
+        }
+        boolean hasFile = file != null && !file.isBlank();
+        boolean hasUrl = url != null && !url.isBlank();
+        if (hasFile == hasUrl) {
+            throw new ConfigLoader.ConfigException(
+                    "Manual attachment of assignment '" + assignmentId
+                            + "' must set exactly one of 'file:' or 'url:'");
+        }
+        return hasFile
+                ? fileAttachment(file, label, assignmentId, attachmentBaseDir)
+                : urlAttachment(url, label);
+    }
+
+    /**
+     * Builds an uploaded-file ref from a local path.
+     *
+     * <p>The path is resolved but deliberately not checked here: the loader stays a pure
+     * parser, and a missing file is reported by {@code ManualAttachmentStager} (WARN, non-fatal)
+     * and by {@code --mode validate}.
+     */
+    private static AttachmentRef fileAttachment(String declaredPath, String label,
+                                                String assignmentId, Path attachmentBaseDir) {
+        Path source = resolveSource(declaredPath, attachmentBaseDir);
+        String sourceName = source.getFileName().toString();
+        String fileName = (label == null || label.isBlank())
+                ? sourceName
+                : withExtensionOf(label.trim(), sourceName);
+
+        AttachmentRef ref = new AttachmentRef();
+        ref.setStableId(assignmentId + "|" + fileName);
+        ref.setFileName(fileName);
+        ref.setUploadedFile(true);
+        ref.setSourcePath(source.toString());
+        return ref;
+    }
+
+    /** Builds a hyperlink ref, matching the convention used for Pronote's G=0 attachments. */
+    private static AttachmentRef urlAttachment(String url, String label) {
+        AttachmentRef ref = new AttachmentRef();
+        ref.setStableId(url);
+        ref.setFileName((label == null || label.isBlank()) ? url : label.trim());
+        ref.setUploadedFile(false);
+        ref.setUrl(url);
+        return ref;
+    }
+
+    /**
+     * Resolves a declared attachment path: {@code ~} expands to the home directory, an absolute
+     * path is taken as-is, and a relative one resolves against {@code manualEntries.attachmentDir}
+     * (the current working directory when that is unset).
+     */
+    private static Path resolveSource(String declaredPath, Path attachmentBaseDir) {
+        String trimmed = declaredPath.trim();
+        if (trimmed.equals("~") || trimmed.startsWith("~/")) {
+            String home = System.getProperty("user.home");
+            return Path.of(home, trimmed.substring(1)).normalize();
+        }
+        Path path = Path.of(trimmed);
+        if (path.isAbsolute() || attachmentBaseDir == null) {
+            return path.toAbsolutePath().normalize();
+        }
+        return attachmentBaseDir.resolve(path).toAbsolutePath().normalize();
+    }
+
+    /**
+     * Appends the source file's extension to a label that has none, so that relabelling an
+     * attachment does not strip the extension the browser needs to open it.
+     */
+    private static String withExtensionOf(String label, String sourceName) {
+        if (label.contains(".")) return label;
+        int dot = sourceName.lastIndexOf('.');
+        return (dot > 0 && dot < sourceName.length() - 1) ? label + sourceName.substring(dot) : label;
+    }
+
     /**
      * Builds the {@code manual:}-prefixed stable identifier for a manual entry.
      *
@@ -157,9 +322,9 @@ public class ManualEntryLoader {
      */
     private static String buildManualId(String explicitId, String subject, LocalDate date, String text) {
         if (explicitId != null && !explicitId.isBlank()) {
-            return "manual:" + explicitId.trim();
+            return ID_PREFIX + explicitId.trim();
         }
-        return "manual:" + subject + "@" + date + "@" + text;
+        return ID_PREFIX + subject + "@" + date + "@" + text;
     }
 
     private static void requireField(String value, String field, String entryType) {
@@ -221,6 +386,10 @@ public class ManualEntryLoader {
         private String assignedDate;  // optional — null when absent (suppresses "Nouveau" badge)
         private boolean done;         // optional — default false
         private String teacher;       // optional — enables teacher-specific enrichment rules
+        /** Optional attachments: file paths (string or {@code file:}) and {@code url:} links.
+         *  Declared as raw objects because SnakeYAML cannot bind the scalar shorthand to a bean;
+         *  see {@link ManualEntryLoader#toAttachments}. */
+        private List<Object> attachments;
 
         public String getId() { return id; }
         public void setId(String id) { this.id = id; }
@@ -242,6 +411,9 @@ public class ManualEntryLoader {
 
         public String getTeacher() { return teacher; }
         public void setTeacher(String teacher) { this.teacher = teacher; }
+
+        public List<Object> getAttachments() { return attachments; }
+        public void setAttachments(List<Object> attachments) { this.attachments = attachments; }
     }
 
     public static class EvaluationEntry {
