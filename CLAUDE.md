@@ -59,6 +59,7 @@ Main (runFetch / runViews / runDiff / runValidate)
  ├── ManualEntryLoader         → loads manual-entries.yaml (assignments + upcoming evals + attachments)
  ├── SubjectEnricher           → resolves enrichedSubject from subject (+optional teacher)
  ├── LockoutGuard              → halts job after N consecutive login failures (self-clearing)
+ ├── EmptyFetchGuard           → aborts a run whose every scraper came back empty (dead session)
  ├── SessionStore              → load/save session.json (persists AES keys + cookies)
  ├── PronoteAuthenticator      → full 10-step login flow
  ├── PronoteHttpClient         → AES-encrypted JSON-RPC calls + rate limiting + attachment download
@@ -92,6 +93,7 @@ All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counte
 | `config` | `ManualEntryLoader` | Parse `manual-entries.yaml` into `Assignment` + synthetic `TimetableEntry(isEval=true)` lists. Stable IDs prefixed `manual:` (`ManualEntryLoader.ID_PREFIX`); explicit `id:` field optional. Also parses the `attachments:` block into `AttachmentRef`s. |
 | `config` | `SubjectEnricher` | Resolve `enrichedSubject` from raw subject (+optional teacher); two-pass rule eval, strips teacher prefixes ("M.", "Mme") |
 | `safety` | `LockoutGuard` | Track login failures in `data/lockout.json`; auto-clear after the cooldown; flag the once-per-episode alert |
+| `safety` | `EmptyFetchGuard` | Abort a run where every enabled type fetched zero items while at least one still held Pronote data — a dead session, not a mass deletion |
 | `safety` | `RateLimiter` | Sleep `minDelay + random(jitter)` before each request |
 | `auth` | `CryptoHelper` | AES-CBC, RSA-1024, MD5, SHA256, key derivation |
 | `auth` | `PronoteSession` | Mutable: AES key/IV, cookies, order counter |
@@ -156,6 +158,15 @@ direct re-encrypt. A server upgrade flips this mid-year with no warning — the 
 work. See [pronotepy#346](https://github.com/bain3/pronotepy/issues/346). Both variants are pinned
 by `PronoteAuthenticatorChallengeTest`.
 
+**A missing `cle` is a failed login.** Step 7's response carries `cle`, the encrypted material the
+final session key is derived from. When the server rejects the login it answers 200 with a `cle`-less
+body — pronotepy's `if "cle" in auth_response[...]: ... else: log.info("login failed")`. Warning and
+carrying on with the auth key builds a session whose key the server does not share: every later call
+returns 200 and decrypts to `{}`, every scraper logs one WARN and returns an empty list, and the run
+reads that as the school having deleted everything. `sessionKeyFromCle` throws `AuthException`
+instead, so `LockoutGuard` counts the failure and the snapshots are never touched.
+`PronoteAuthenticatorSessionKeyTest` pins it.
+
 **Session reuse**: On startup, the app reloads `session.json` and — *only if it was last used
 within `safety.sessionProbeMaxAgeSeconds`* (default 120) — probes it with a cheap call. If the
 probe succeeds, no login is performed. Pronote drops an idle session after about two minutes, so
@@ -183,6 +194,18 @@ request plus a rate-limiter wait on every run. See the Session Reuse section bel
   retried next run instead of consuming the episode's single alert.
 - Login is retried **zero times** — one attempt per job run.
 - Never add retry loops around `PronoteAuthenticator.login()`.
+
+### Empty Fetches
+- `EmptyFetchGuard` aborts `runFetch` — before the diff, the notification and the snapshot write —
+  when **every** enabled data type fetched zero items from Pronote and at least one of them held
+  Pronote data in the previous snapshot. That is the signature of a session the server has stopped
+  honouring, and without the guard the run announces the whole snapshot as removed and then
+  persists the emptiness, so the next healthy run announces it all back as additions.
+- The rule deliberately requires *all* types to be empty. A single type emptying is legitimate:
+  over the holidays the timetable and the homework return nothing for the entire fetch window,
+  while grades and evaluations keep the run healthy.
+- Items whose ID starts with `manual:` are ignored on both sides — they come from the YAML, not
+  from Pronote, so the guard is fed the scraper output *before* the manual merge.
 
 ### Session Reuse
 - Attempt session reuse before login, but only when the stored session is still plausibly alive:

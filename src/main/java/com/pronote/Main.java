@@ -23,6 +23,7 @@ import com.pronote.persistence.DiffReporter;
 import com.pronote.persistence.DiffResult;
 import com.pronote.persistence.SnapshotStore;
 import com.pronote.persistence.TimetableDiffFilter;
+import com.pronote.safety.EmptyFetchGuard;
 import com.pronote.safety.LockoutGuard;
 import com.pronote.safety.RateLimiter;
 import com.pronote.scraper.AssignmentScraper;
@@ -231,6 +232,11 @@ public class Main {
             log.debug("School-life feature disabled — skipping.");
         }
 
+        // Keep what Pronote itself returned: step 5b reads these to tell a dead session from a
+        // genuinely empty week, and the manual entries merged in below would mask it.
+        List<Assignment> fetchedAssignments = assignments;
+        List<TimetableEntry> fetchedTimetable = timetable;
+
         // ---- 4b. Merge manual entries (from manual-entries.yaml, if present) ----
         ManualEntryLoader.ManualEntries manualEntries = ManualEntryLoader.load(
                 Path.of(config.getManualEntries().getFile()), subjectEnricher,
@@ -271,6 +277,24 @@ public class Main {
         // First run: all enabled types have no snapshot yet.
         boolean isFirstRun = prevAssignments.isEmpty() && prevTimetable.isEmpty()
                 && prevGrades.isEmpty() && prevEvaluations.isEmpty() && prevSchoolLife.isEmpty();
+
+        // ---- 5b. Refuse a run that came back empty across the board ------
+        // A session the server has stopped honouring still answers 200, and the body decrypts to
+        // `{}`; each scraper logs a WARN and returns nothing. Without this check the diff reads
+        // that as the school deleting the entire timetable, notifies a hundred removals, and
+        // persists the empty snapshot — so the next healthy run announces them all back.
+        EmptyFetchGuard emptyFetchGuard = new EmptyFetchGuard();
+        if (features.isAssignments()) emptyFetchGuard.observe("devoirs", fetchedAssignments, prevAssignments);
+        if (features.isTimetable())   emptyFetchGuard.observe("emploi du temps", fetchedTimetable, prevTimetable);
+        if (features.isGrades())      emptyFetchGuard.observe("notes", grades, prevGrades);
+        if (features.isEvaluations()) emptyFetchGuard.observe("évaluations", evaluations, prevEvaluations);
+        if (features.isSchoolLife())  emptyFetchGuard.observe("vie scolaire", schoolLife, prevSchoolLife);
+        try {
+            emptyFetchGuard.verify();
+        } catch (EmptyFetchGuard.EmptyFetchException e) {
+            sendErrorAlert(errorNotifier, "récupération vide", e.getMessage());
+            throw e;
+        }
 
         // ---- 6. Diff -------------------------------------------------------
         // For data types enabled for the first time on an existing installation,

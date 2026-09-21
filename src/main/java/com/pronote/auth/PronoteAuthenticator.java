@@ -248,18 +248,8 @@ public class PronoteAuthenticator {
         JsonNode authDataNode = navigateToData(authResponse, "Authentification");
 
         // ---- Step 10: Re-derive session key from cle ---------------------
-        if (authDataNode.has("cle") && !authDataNode.get("cle").isNull()) {
-            String cleHex = authDataNode.get("cle").asText();
-            byte[] decryptedCle = CryptoHelper.aesDecrypt(
-                    CryptoHelper.fromHex(cleHex), authKey, session.getAesIv());
-            String cleStr = new String(decryptedCle, StandardCharsets.UTF_8);
-            byte[] cleBytes = parseCommaSeparatedBytes(cleStr);
-            byte[] finalKey = CryptoHelper.md5(cleBytes);
-            session.setAesKey(finalKey);
-            log.debug("Session key re-derived from cle");
-        } else {
-            log.warn("No 'cle' in Authentification response; keeping auth key as session key");
-        }
+        session.setAesKey(sessionKeyFromCle(authDataNode, authKey, session.getAesIv()));
+        log.debug("Session key re-derived from cle");
 
         // ---- Step 11: POST ParametresUtilisateur (required to init server-side page state) ----
         // pronotepy calls this immediately after after_auth; without it, subsequent data API calls
@@ -449,6 +439,32 @@ public class PronoteAuthenticator {
             return CryptoHelper.toHex(
                     CryptoHelper.aesEncrypt(challenge.getBytes(StandardCharsets.UTF_8), authKey, iv));
         }
+    }
+
+    /**
+     * Derives the post-login session AES key from the {@code cle} of an Authentification response.
+     *
+     * <p>A missing {@code cle} is how the server says the login was rejected — pronotepy's
+     * {@code if "cle" in auth_response[...]: ... else: log.info("login failed"); return False}.
+     * This used to warn and carry on with the auth key, which produced a session whose key
+     * nothing on the server side agreed with: every subsequent call decrypted to <code>{}</code>,
+     * every scraper returned an empty list, and the run diffed a full snapshot against nothing
+     * and announced the whole timetable as deleted. Failing the login instead lets
+     * {@code LockoutGuard} count it and leaves the snapshots alone.
+     *
+     * <p>Package-private for unit testing.
+     *
+     * @throws AuthException if the response carries no usable {@code cle}
+     */
+    static byte[] sessionKeyFromCle(JsonNode authDataNode, byte[] authKey, byte[] iv) {
+        if (authDataNode == null || !authDataNode.has("cle") || authDataNode.get("cle").isNull()) {
+            throw new AuthException("Authentification rejected: no 'cle' in the response "
+                    + "(wrong credentials, or the server refused this session).");
+        }
+        byte[] decryptedCle = CryptoHelper.aesDecrypt(
+                CryptoHelper.fromHex(authDataNode.get("cle").asText()), authKey, iv);
+        byte[] cleBytes = parseCommaSeparatedBytes(new String(decryptedCle, StandardCharsets.UTF_8));
+        return CryptoHelper.md5(cleBytes);
     }
 
     /** _enleverAlea: keep only even-indexed characters from the decrypted challenge (pronotepy string-level). */
