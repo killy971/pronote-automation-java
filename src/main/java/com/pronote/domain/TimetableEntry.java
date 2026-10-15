@@ -45,6 +45,16 @@ public class TimetableEntry implements Identifiable {
      * school recolouring a subject is not a change the user needs a notification about.
      */
     private String color;
+
+    /**
+     * True for Pronote's {@code estSortiePedagogique} — a school outing rather than a lesson.
+     * It is what Pronote puts in the slot of the lessons an outing displaces, and it routinely
+     * runs across the lunch break, so it is both a superseder and a multi-hour entry.
+     */
+    private boolean outing;
+    /** True for Pronote's {@code estRetenue} — a detention occupying the slot. */
+    private boolean detention;
+
     public TimetableEntry() {}
 
     @Override
@@ -89,6 +99,12 @@ public class TimetableEntry implements Identifiable {
 
     public String getColor() { return color; }
     public void setColor(String color) { this.color = color; }
+
+    public boolean isOuting() { return outing; }
+    public void setOuting(boolean outing) { this.outing = outing; }
+
+    public boolean isDetention() { return detention; }
+    public void setDetention(boolean detention) { this.detention = detention; }
 
     @Override
     public boolean equals(Object o) {

@@ -36,6 +36,12 @@ public final class NotificationFormatter {
                 + " " + String.format("%02dh%02d", dt.getHour(), dt.getMinute());
     }
 
+    /** {@code "13h00"} — the clock part alone, for the far end of a span. */
+    public static String fmtClock(LocalDateTime dt) {
+        if (dt == null) return "?";
+        return String.format("%02dh%02d", dt.getHour(), dt.getMinute());
+    }
+
     /** Drops the {@code .0} suffix from integer-valued doubles (e.g. {@code 20.0 → "20"}). */
     public static String fmtOutOf(double outOf) {
         return outOf == (long) outOf ? String.valueOf((long) outOf) : String.valueOf(outOf);

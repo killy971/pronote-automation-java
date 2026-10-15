@@ -22,6 +22,15 @@ import java.util.Objects;
  * into one). This class holds that logic so the notification builder applies it too — otherwise a
  * room change goes out titled "✗ Mathématiques Cours annulé".
  *
+ * <p><b>The replacement need not share the cancelled lesson's hours.</b> A school outing or a
+ * whole-morning activity is one entry running, say, 11:00–13:00 over two cancelled one-hour
+ * lessons. Matching superseders on an exact start time saw only the first of those as taken over
+ * and announced the second as a plain cancellation. A candidate therefore qualifies when its own
+ * range <em>covers the cancelled entry's start</em> — which still matches the same-start twin of a
+ * room change, and additionally matches the later lessons a long entry swallows. Merely
+ * overlapping is not enough: two lessons at 14:00 and 14:30 overlap without one standing in for
+ * the other, and pairing those would read a normal day as a replacement.
+ *
  * <p>Immutable; build one with {@link #index(List)} and query it.
  */
 public final class TimetableSlots {
@@ -40,19 +49,25 @@ public final class TimetableSlots {
     }
 
     private final Map<LocalDateTime, List<TimetableEntry>> byStart;
+    /** Every indexed entry, in encounter order — the candidate pool for superseder lookups. */
+    private final List<TimetableEntry> all;
 
-    private TimetableSlots(Map<LocalDateTime, List<TimetableEntry>> byStart) {
+    private TimetableSlots(Map<LocalDateTime, List<TimetableEntry>> byStart,
+                           List<TimetableEntry> all) {
         this.byStart = byStart;
+        this.all = all;
     }
 
     /** Groups entries by start time, preserving encounter order. Null start times are dropped. */
     public static TimetableSlots index(List<TimetableEntry> entries) {
         Map<LocalDateTime, List<TimetableEntry>> byStart = new LinkedHashMap<>();
+        List<TimetableEntry> all = new ArrayList<>();
         for (TimetableEntry e : entries) {
             if (e.getStartTime() == null) continue;
             byStart.computeIfAbsent(e.getStartTime(), k -> new ArrayList<>()).add(e);
+            all.add(e);
         }
-        return new TimetableSlots(byStart);
+        return new TimetableSlots(byStart, all);
     }
 
     /** All slot groups, in encounter order of their first entry. */
@@ -72,7 +87,7 @@ public final class TimetableSlots {
      * change resolves to its own lesson rather than to an unrelated class at the same hour.
      */
     public TimetableEntry supersederOf(TimetableEntry inactive) {
-        return superseder(inactive, slotOf(inactive));
+        return superseder(inactive, all);
     }
 
     /** Classifies what became of a cancelled/exempted entry. See {@link SlotOutcome}. */
@@ -85,19 +100,60 @@ public final class TimetableSlots {
     }
 
     /**
-     * Picks the superseding entry within an already-grouped slot.
+     * Picks the entry that stands in for {@code inactive} out of {@code candidates}, or
+     * {@code null} when none does. Candidates may be any entry list — the covering rule below
+     * does the filtering, so callers need not pre-group by start time.
+     *
+     * <p>Ranking, most specific first: the same subject (a room change resolves to its own lesson
+     * rather than to an unrelated class at the same hour), then the same start time, then the
+     * longest overlap. Ties keep encounter order.
      *
      * <p>Manual entries are never candidates: a synthetic upcoming-eval marker sitting on the same
      * hour must not make a real cancellation look maintained.
      */
-    public static TimetableEntry superseder(TimetableEntry inactive, List<TimetableEntry> slot) {
-        TimetableEntry fallback = null;
-        for (TimetableEntry candidate : slot) {
+    public static TimetableEntry superseder(TimetableEntry inactive, List<TimetableEntry> candidates) {
+        TimetableEntry best = null;
+        long bestRank = Long.MIN_VALUE;
+        for (TimetableEntry candidate : candidates) {
             if (candidate == inactive || !isActive(candidate) || isManual(candidate)) continue;
-            if (Objects.equals(candidate.getSubject(), inactive.getSubject())) return candidate;
-            if (fallback == null) fallback = candidate;
+            if (!covers(candidate, inactive)) continue;
+            long rank = rank(inactive, candidate);
+            if (rank > bestRank) {
+                bestRank = rank;
+                best = candidate;
+            }
         }
-        return fallback;
+        return best;
+    }
+
+    /**
+     * True when {@code candidate} occupies the hour {@code inactive} was scheduled to start at —
+     * either by starting with it or by running across it. Entries with no end time fall back to
+     * requiring the same start, which is how the field behaved before end times were consulted.
+     */
+    private static boolean covers(TimetableEntry candidate, TimetableEntry inactive) {
+        LocalDateTime start = inactive.getStartTime();
+        LocalDateTime from = candidate.getStartTime();
+        if (start == null || from == null) return false;
+        if (from.equals(start)) return true;
+        LocalDateTime to = candidate.getEndTime();
+        return to != null && from.isBefore(start) && to.isAfter(start);
+    }
+
+    /** Higher is a better superseder. See {@link #superseder} for the ordering this encodes. */
+    private static long rank(TimetableEntry inactive, TimetableEntry candidate) {
+        long rank = 0;
+        if (Objects.equals(candidate.getSubject(), inactive.getSubject())) rank += 1L << 40;
+        if (candidate.getStartTime().equals(inactive.getStartTime()))      rank += 1L << 39;
+        return rank + overlapMinutes(inactive, candidate);
+    }
+
+    /** Minutes the two ranges share; 0 when either has no end time. */
+    private static long overlapMinutes(TimetableEntry a, TimetableEntry b) {
+        if (a.getEndTime() == null || b.getEndTime() == null) return 0;
+        LocalDateTime from = a.getStartTime().isAfter(b.getStartTime()) ? a.getStartTime() : b.getStartTime();
+        LocalDateTime to   = a.getEndTime().isBefore(b.getEndTime())   ? a.getEndTime()   : b.getEndTime();
+        return from.isBefore(to) ? java.time.Duration.between(from, to).toMinutes() : 0;
     }
 
     /** True when Pronote says this entry is not happening as listed (cancelled or exempted). */

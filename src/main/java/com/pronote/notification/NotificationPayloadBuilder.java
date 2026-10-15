@@ -179,13 +179,16 @@ public final class NotificationPayloadBuilder {
             }
         }
 
-        // 4b. A single maintained-but-changed lesson: name the change, since "1 modif. EDT" is
-        // exactly the case the reader has to open the app to understand.
+        // 4b. A single maintained-but-changed lesson, or a single lesson put back on: name it,
+        // since "1 modif. EDT" is exactly the case the reader has to open the app to understand.
         boolean anyLost = !cancelled.isEmpty() || !replacements.isEmpty();
         if (tt.changes().size() == 1 && tt.otherChangeCount() == 1) {
             TimetableChanges.SlotPair p = tt.changes().get(0);
             tokens.add("🔀 " + subject(p.current()) + " " + slotChangeSummary(p)
                     + " · " + fmtDate(p.current().getStartTime().toLocalDate()));
+        } else if (tt.reinstatements().size() == 1 && tt.otherChangeCount() == 1) {
+            TimetableEntry e = tt.reinstatements().get(0);
+            tokens.add("✓ " + subject(e) + " rétabli · " + fmtDateTime(e.getStartTime()));
         } else {
             // 4c. Other timetable changes (additions, removals, modifications, room changes)
             long otherTtChanges = tt.otherChangeCount();
@@ -290,10 +293,18 @@ public final class NotificationPayloadBuilder {
             TimetableEntry c = p.current();
             b.append("🔄 ").append(subject(c)).append(" remplace ").append(subject(p.cancelled()))
                     .append(" — ").append(fmtDateTime(c.getStartTime()));
+            // A replacement that runs past the lesson it took over — an outing across the lunch
+            // break — changes when the child is free, so the span belongs in the line.
+            String until = runsPast(p.cancelled(), c);
+            if (until != null) b.append(" → ").append(until);
             if (c.getRoom() != null && !c.getRoom().isBlank()) {
                 b.append(" (").append(c.getRoom()).append(")");
             }
             b.append("\n");
+        }
+        for (TimetableEntry e : tt.reinstatements()) {
+            b.append("✓ ").append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()))
+                    .append(" · cours rétabli\n");
         }
         // Same subject on both sides of the slot: the lesson holds, its details moved.
         for (TimetableChanges.SlotPair p : tt.changes()) {
@@ -464,6 +475,17 @@ public final class NotificationPayloadBuilder {
         }
         String label = p.current().getStatusLabel();
         return label != null && !label.isBlank() ? truncate(label, 30) : "modifié";
+    }
+
+    /**
+     * The time the superseding entry ends, when it outlasts the lesson it took over; {@code null}
+     * when the two end together. A "sortie pédagogique" taking over an 11:00–12:00 lesson and
+     * running to 13:00 is the case this exists for.
+     */
+    private static String runsPast(TimetableEntry cancelled, TimetableEntry current) {
+        if (cancelled.getEndTime() == null || current.getEndTime() == null) return null;
+        if (!current.getEndTime().isAfter(cancelled.getEndTime())) return null;
+        return fmtClock(current.getEndTime());
     }
 
     private static boolean differs(String a, String b) {

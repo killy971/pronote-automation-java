@@ -39,11 +39,14 @@ import java.util.Locale;
  *   Professeur (or ListeProfesseurs[0]) → teacher
  *   Salle (or ListeSalles[0])   → room
  *   DateDuCours.V               → startTime  ("DD/MM/YYYY HH:MM:SS")
+ *   DateDuCoursFin.V            → endTime, when sent (preferred over the duree arithmetic)
  *   duree                       → duration in 15-min slots (endTime = startTime + duree*15min)
  *   estAnnule                   → CANCELLED
  *   estModifie                  → MODIFIED
  *   estExempte                  → EXEMPTED
  *   estDevoir                   → isTest
+ *   estSortiePedagogique        → outing
+ *   estRetenue                  → detention
  * </pre>
  */
 public class TimetableScraper {
@@ -240,15 +243,36 @@ public class TimetableScraper {
             }
         }
 
-        if (e.getSubject() == null) e.setSubject("");
+        // What kind of slot this is, beyond a lesson. An outing ("sortie pédagogique") is how
+        // Pronote fills the slot of the lessons it displaces, and it is the one entry type that
+        // routinely has no subject of its own — see the subject fallback below.
+        e.setOuting(getBoolean(data, "estSortiePedagogique", false));
+        e.setDetention(getBoolean(data, "estRetenue", false));
+
+        if (e.getSubject() == null || e.getSubject().isBlank()) {
+            e.setSubject(fallbackSubject(data, e));
+        }
         if (e.getTeacher() == null) e.setTeacher("");
         if (e.getRoom()    == null) e.setRoom("");
 
-        // End time: duree is in 15-minute slots (quarter-hours) for this Pronote instance.
-        // A standard 1-hour period has duree=4 (4 × 15 min = 60 min).
+        // End time. Pronote sends DateDuCoursFin on the entries whose span it cannot express as a
+        // slot count — an outing running 11:00–13:00 across the lunch break is exactly that case,
+        // and `duree` then counts teaching slots rather than elapsed time. Prefer the explicit
+        // field, as pronotepy does, and fall back to the slot arithmetic.
         if (e.getStartTime() != null) {
-            int duree = data.has("duree") ? data.get("duree").asInt(4) : 4;
-            e.setEndTime(e.getStartTime().plusMinutes(duree * 15L));
+            JsonNode dateFin = data.get("DateDuCoursFin");
+            LocalDateTime end = null;
+            if (dateFin != null) {
+                String endStr = dateFin.has("V") ? dateFin.get("V").asText("") : dateFin.asText("");
+                end = parseDatetime(endStr);
+            }
+            if (end == null || !end.isAfter(e.getStartTime())) {
+                // duree is in 15-minute slots (quarter-hours) for this Pronote instance.
+                // A standard 1-hour period has duree=4 (4 × 15 min = 60 min).
+                int duree = data.has("duree") ? data.get("duree").asInt(4) : 4;
+                end = e.getStartTime().plusMinutes(duree * 15L);
+            }
+            e.setEndTime(end);
         }
 
         // Status flags (absent = false/normal)
@@ -313,6 +337,23 @@ public class TimetableScraper {
     private static String getString(JsonNode node, String field, String defaultValue) {
         JsonNode v = node.get(field);
         return (v == null || v.isNull()) ? defaultValue : v.asText(defaultValue);
+    }
+
+    /**
+     * A name for a slot Pronote sends with no subject (no {@code G=16} item in
+     * {@code ListeContenus}). Outings and detentions are the known cases. Without this the entry
+     * carries an empty subject, which renders as a nameless card, reads as "remplace" nothing in
+     * a notification, and gives the slot an id of {@code "@<start>:NORMAL"}.
+     *
+     * <p>Pronote's own {@code L} title is preferred when present — schools name the outing —
+     * then the kind of slot, then the empty string the rest of the mapping expects.
+     */
+    private static String fallbackSubject(JsonNode data, TimetableEntry e) {
+        String title = getString(data, "L", "");
+        if (!title.isBlank()) return title;
+        if (e.isOuting())    return "Sortie p\u00e9dagogique";
+        if (e.isDetention()) return "Retenue";
+        return "";
     }
 
     /**

@@ -135,17 +135,17 @@ Orchestration lives in `com.pronote.pipeline`; `Main.java` only parses the CLI a
 | `scraper` | `ManualAttachmentStager` | Offline counterpart: copies `manual-entries.yaml` attachment files into the same tree, prunes orphans. No session, no network — runs in `views` mode too |
 | `scraper` | `AttachmentPaths` | The one definition of the on-disk attachment layout, shared by the downloader and the stager |
 | `scraper` | `AssignmentTeacherResolver` | Re-enriches assignments with teacher inferred from timetable (subject + date lookup, returns null when ambiguous); also resolves placeholder start/end times on manual eval entries against the live timetable |
-| `scraper` | `TimetableScraper` | `PageEmploiDuTemps` per-week → `TimetableEntry`; reads `estEval`/`estDevoir`/`originesCategorie` from `cahierDeTextes.V` |
+| `scraper` | `TimetableScraper` | `PageEmploiDuTemps` per-week → `TimetableEntry`; reads `estEval`/`estDevoir`/`originesCategorie` from `cahierDeTextes.V`, `DateDuCoursFin` for an explicit span, and `estSortiePedagogique`/`estRetenue` |
 | `scraper` | `GradeScraper`, `EvaluationScraper`, `SchoolLifeScraper` | Per-type scrapers, same pattern |
 | `domain` | `Assignment`, `TimetableEntry`, `Grade`, `CompetenceEvaluation`, `SchoolLifeEvent` | Pure data, Jackson-serializable, implements `Identifiable` |
-| `domain` | `TimetableSlots` | Slot-level reading of a timetable: groups entries by start time and resolves which entry supersedes a cancelled one. Shared by the timetable view and the notification builder — see "Cancelled ghosts" below |
+| `domain` | `TimetableSlots` | Slot-level reading of a timetable: groups entries by start time and resolves which entry supersedes a cancelled one — by **time coverage**, not a shared start, so one long entry can take over several lessons. Shared by the timetable view and the notification builder — see "Cancelled ghosts" below |
 | `domain` | `AttachmentRef` | Attachment metadata: `stableId`, `fileName`, `uploadedFile`, `localPath`, `mimeType`; transient `downloadUrl` and `sourcePath` (`@JsonIgnore` — never persisted) |
 | `persistence` | `SnapshotStore` | Write `latest.json`, archive old, purge expired; `loadLatest` / `loadPrevious` |
 | `persistence` | `DiffEngine` | Generic field-level diff via `jackson.valueToTree()`; registers `AttachmentRefDiffMixin` to exclude runtime fields from comparison |
 | `persistence` | `AssignmentDiffFilter` | Post-diff suppression: drop removed/modified assignments whose due date has passed — they only fell out of the fetch window. Additions are kept. |
 | `persistence` | `TimetableDiffFilter` | Post-diff suppression: drop past items, drop bulk normal additions in newly-discovered furthest week. `isEval=true` entries always kept (user needs lead time). |
 | `persistence` | `DiffReporter` | Writes `data/diff-latest.json` + appends to `data/diff-history.log` every run, regardless of notifications |
-| `notification` | `TimetableChanges` | Buckets a timetable diff by slot via `TimetableSlots`: genuine cancellations, replacements, maintained-but-changed lessons, new evals, plain adds/removes/modifications. Each diff entry lands in exactly one bucket |
+| `notification` | `TimetableChanges` | Buckets a timetable diff by slot via `TimetableSlots`: genuine cancellations, replacements, maintained-but-changed lessons, reinstatements, new evals, plain adds/removes/modifications. Each diff entry lands in exactly one bucket |
 | `notification` | `NotificationPayloadBuilder` | Assembles `NotificationPayload` from five diff results plus the current timetable; sets HIGH priority when lost lessons, timetable removals, or school-life additions are present; title capped at 72 chars |
 | `notification` | `CompositeNotifier` | Fan-out to NtfyNotifier + EmailNotifier; per-channel failure is logged, not fatal |
 | `views` | `*HtmlGenerator` / `*ViewRenderer` | Generator holds all HTML/CSS; Renderer handles only file I/O and date selection — no HTML in Renderer classes |
@@ -622,9 +622,10 @@ To verify a YAML edit without doing a full run, use `make validate` (`--mode val
 | Source | Title token | Body marker | Notes |
 |---|---|---|---|
 | Cancelled lesson, **nothing in the slot** | `✗ Subject reason · date` | `✗ ` prefix | Bumps priority to HIGH |
-| Cancelled lesson, **another subject in the slot** | `🔄 New remplace Old · date` | `🔄 ` prefix | Bumps priority to HIGH; the replacement's own `+` line is folded in |
+| Cancelled lesson, **another subject in the slot** | `🔄 New remplace Old · date` | `🔄 ` prefix, plus `→ HHhMM` when the replacement runs past the lesson | Bumps priority to HIGH; the replacement's own `+` line is folded in |
 | Cancelled lesson, **same subject in the slot** | `🔀 Subject salle X · date` (single) else counted in `📅 N modif. EDT` | `🔀 ` prefix + `salle A → B` | NORMAL priority — the lesson still happens. See "Cancelled ghosts" below |
-| Removed timetable entry | counted in `📅 N modif. EDT` | `- ` prefix | Bumps priority to HIGH |
+| Removed timetable entry | counted in `📅 N modif. EDT` | `- ` prefix | Bumps priority to HIGH. The pre-flip copy of a lesson already reported as cancelled or reinstated is **not** one of these — see "Status flips arrive as a pair" below |
+| **Cancellation withdrawn** (lesson back on) | `✓ Subject rétabli · date` (single) else counted in `📅 N modif. EDT` | `✓ ` prefix + `cours rétabli` | NORMAL priority — nothing was lost |
 | **Added upcoming eval** (`isEval=true`, added) | **`📝 Subject éval · date`** | **`📝 ` prefix + lesson label** | Always surfaced even when the furthest week is newly discovered (see `TimetableDiffFilter.isNoteworthyTimetableEntry`) |
 | Other timetable add/modify | `📅 N modif. EDT` | `+ ` or `~ ` prefix | Excludes entries already told by a slot pairing (counted separately) |
 | New grade | `📊 Subject: x/y` | `+ ` prefix | |
@@ -649,15 +650,64 @@ class"; slot by slot it is one lesson that moved rooms.
   change as `🔀 Mathématiques — mer. 9/09 08h00 · salle B303 → B203` at NORMAL priority instead of
   `✗ Mathématiques Cours annulé` at HIGH.
 
-The superseder is picked from the entries sharing a start time, **same subject first** (so a room
-change resolves to its own lesson rather than to an unrelated class at the same hour), and manual
-entries are never candidates — a synthetic eval marker must not make a real cancellation look
-maintained.
+#### Which entry counts as the superseder
+
+A candidate qualifies when its own range **covers the cancelled entry's start time** — it either
+starts with it or runs across it. Among the qualifying candidates the ranking is **same subject
+first** (so a room change resolves to its own lesson rather than to an unrelated class at the same
+hour), then same start time, then longest overlap. Manual entries are never candidates — a
+synthetic eval marker must not make a real cancellation look maintained.
+
+Covering rather than an exact start match is what handles the replacement that does not keep the
+lesson's hours. A **sortie pédagogique** is one entry running, say, 11:00–13:00 across the lunch
+break over two cancelled one-hour lessons: start-time matching saw only the 11:00 one as taken over
+and announced the 12:00 one as a plain cancellation. Both now pair to the outing, the view collapses
+them onto its single card (one `Remplace :` line each), and the notification carries the new span —
+`🔄 Sortie pédagogique remplace Mathématiques — jeu. 15/10 11h00 → 13h00`.
+
+Merely *overlapping* is deliberately not enough: this instance has lessons at 14:00 and 14:30, which
+overlap without either standing in for the other, and pairing those would read an ordinary day as a
+replacement.
 
 `NotificationPayloadBuilder.build` therefore takes the **current timetable snapshot** as its last
 argument: the entry holding a slot need not appear in the diff at all (Pronote sometimes only adds
 the ghost), so the diff alone cannot tell a cancellation from a room change. The five-argument
 overload falls back to the diff's own entries and is for tests.
+
+### Status flips arrive as a pair, not as a field change
+
+A `TimetableEntry` id carries its status (`SUBJECT@start:NORMAL`), so Pronote flipping `estAnnule`
+never reaches the diff as a modification: the cancelled copy is **added** and the normal one
+**removed**. Reported as-is that is one event told twice — `✗ Mathématiques` *and*
+`- Mathématiques [supprimé]` — with the removal counted again in `N modif. EDT`.
+`TimetableChanges` drops the removed twin (exact subject + start-time match only, so a lesson
+Pronote genuinely took off the week is still announced).
+
+The reverse edit is handled as its own bucket: when the cancelled copy is removed and the normal one
+added back, the lesson is **reinstated**, reported `✓ Subject rétabli` at NORMAL priority. Without
+that, withdrawing a cancellation announced a deleted lesson at HIGH for a class that is back on.
+
+### Outings and other non-lesson slots
+
+`estSortiePedagogique` and `estRetenue` map to `TimetableEntry.outing` / `.detention`. These are the
+entries Pronote sends with **no subject** (no `G=16` item in `ListeContenus`); left blank they render
+as a nameless card, read as "remplace" nothing, and take an id of `@<start>:NORMAL`. The scraper
+falls back to Pronote's own `L` title, then to "Sortie pédagogique" / "Retenue".
+
+They are also the entries that need `DateDuCoursFin`: `duree` counts teaching slots, so an outing
+spanning the lunch break would otherwise end an hour early. The view shows both ends of any span
+longer than an hour (`slot__time-end`) because the card occupies two grid rows and swallows the
+lunch marker.
+
+**This instance's `PageEmploiDuTemps` does not currently return them.** On 2026-10-15 the Pronote
+web timetable showed an 11:00–13:00 "Sortie pédagogique" in place of a cancelled lesson that the
+API never sent: verified against the raw `ListeCours` with `NumeroSemaine` alone, with pronotepy's
+full param set (`avecAbsencesEleve`, `avecConseilDeClasse`, `estEDTPermanence`,
+`avecAbsencesRessource`, `avecDisponibilites`, `avecInfosPrefsGrille`, `Ressource`), with
+`avecAbsencesEleve: true`, with `estEDTPermanence: true`, with no `ressource` at all, and with the
+class resource — 34 entries every time, none of them the outing, and `absences` holding only
+`joursCycle`. `PagePresence` does not carry it either. Do not re-run those probes; if the data
+turns up it will be from a source none of them cover.
 
 ---
 
@@ -668,7 +718,7 @@ overload falls back to the diff's own entries and is for tests.
 | Pronote field name changes | High | Scrapers use string literals from pronotepy. Monitor pronotepy releases for changes. |
 | Session HTML parsing | Medium | `PronoteAuthenticator` uses regex on embedded JS. Changes to page structure will break login. |
 | AES key derivation | Medium | Exact derivation formula must match pronotepy exactly. Bugs here produce silent garbage data. |
-| timetable `duree` field | Medium | Assumed to be in 30-minute slots. Some Pronote instances may differ. |
+| timetable `duree` field | Medium | Assumed to be in 15-minute slots (`duree: 4` = one hour). Only used when `DateDuCoursFin` is absent. Some Pronote instances may differ. |
 | ENT/SSO portals | N/A | Explicitly unsupported. The app aborts cleanly with a clear error message. |
 | Pronote instance version | Low | The auth protocol is version-dependent. The target URL `2170001x` may differ from others. |
 | Raspberry Pi clock skew | Low | Pronote sessions may reject requests with wrong timestamps. Keep Pi clock synced (`timedatectl`). |

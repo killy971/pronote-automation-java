@@ -223,4 +223,118 @@ class TimetableScraperParseTest {
         List<TimetableEntry> out = scraper().parseTimetable(MAPPER.readTree(json), "6A SIA G1");
         assertEquals(1, out.size());
     }
+
+    @Test
+    void parse_explicitEndTime_winsOverTheDureeArithmetic() {
+        // Pronote sends DateDuCoursFin for the spans it cannot express as a slot count. An outing
+        // running across the lunch break is exactly that: duree counts teaching slots, not the
+        // elapsed two hours, so the arithmetic would end the entry at 12:00 instead of 13:00.
+        String json = """
+            {
+              "ListeCours": [
+                {"V": {
+                  "DateDuCours": {"V": "06/05/2030 11:00:00"},
+                  "DateDuCoursFin": {"V": "06/05/2030 13:00:00"},
+                  "duree": 4,
+                  "estSortiePedagogique": true,
+                  "ListeContenus": {"V": [{"G": 3, "L": "TEACHER_ALPHA"}]}
+                }}
+              ]
+            }
+            """;
+        TimetableEntry e = parseOne(json);
+        assertEquals(LocalDateTime.of(2030, 5, 6, 11, 0), e.getStartTime());
+        assertEquals(LocalDateTime.of(2030, 5, 6, 13, 0), e.getEndTime());
+    }
+
+    @Test
+    void parse_outingWithoutASubject_isNamedRatherThanLeftBlank() {
+        // An outing carries no G=16 item. Left blank it renders as a nameless card and reads as
+        // "remplace " nothing in a notification; its id would be "@<start>:NORMAL".
+        String json = """
+            {
+              "ListeCours": [
+                {"V": {
+                  "DateDuCours": {"V": "06/05/2030 11:00:00"},
+                  "duree": 8,
+                  "estSortiePedagogique": true,
+                  "ListeContenus": {"V": [{"G": 3, "L": "TEACHER_ALPHA"}]}
+                }}
+              ]
+            }
+            """;
+        TimetableEntry e = parseOne(json);
+        assertTrue(e.isOuting());
+        assertFalse(e.isDetention());
+        assertEquals("Sortie pédagogique", e.getSubject());
+        assertEquals("TEACHER_ALPHA", e.getTeacher());
+        assertEquals("Sortie pédagogique@2030-05-06T11:00:NORMAL", e.getId());
+        assertEquals(LocalDateTime.of(2030, 5, 6, 13, 0), e.getEndTime());
+    }
+
+    @Test
+    void parse_pronotesOwnTitleBeatsTheGenericOutingLabel() {
+        String json = """
+            {
+              "ListeCours": [
+                {"V": {
+                  "L": "Sortie au musée",
+                  "DateDuCours": {"V": "06/05/2030 11:00:00"},
+                  "duree": 4,
+                  "estSortiePedagogique": true,
+                  "ListeContenus": {"V": []}
+                }}
+              ]
+            }
+            """;
+        assertEquals("Sortie au musée", parseOne(json).getSubject());
+    }
+
+    @Test
+    void parse_detentionWithoutASubject_isNamedToo() {
+        String json = """
+            {
+              "ListeCours": [
+                {"V": {
+                  "DateDuCours": {"V": "06/05/2030 16:00:00"},
+                  "duree": 4,
+                  "estRetenue": true,
+                  "ListeContenus": {"V": []}
+                }}
+              ]
+            }
+            """;
+        TimetableEntry e = parseOne(json);
+        assertTrue(e.isDetention());
+        assertEquals("Retenue", e.getSubject());
+    }
+
+    @Test
+    void parse_unusableEndTime_fallsBackToTheDureeArithmetic() {
+        // A DateDuCoursFin that does not parse, or lands at or before the start, is ignored.
+        String json = """
+            {
+              "ListeCours": [
+                {"V": {
+                  "DateDuCours": {"V": "06/05/2030 08:00:00"},
+                  "DateDuCoursFin": {"V": "not a date"},
+                  "duree": 6,
+                  "ListeContenus": {"V": [{"G": 16, "L": "MATHEMATIQUES"}]}
+                }}
+              ]
+            }
+            """;
+        assertEquals(LocalDateTime.of(2030, 5, 6, 9, 30), parseOne(json).getEndTime());
+    }
+
+    /** Parses a one-entry ListeCours response. */
+    private static TimetableEntry parseOne(String json) {
+        try {
+            List<TimetableEntry> out = scraper().parseTimetable(MAPPER.readTree(json), null);
+            assertEquals(1, out.size(), "expected exactly one parsed entry");
+            return out.get(0);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
 }

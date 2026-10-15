@@ -272,81 +272,103 @@ public class TimetableHtmlGenerator {
     // -------------------------------------------------------------------------
 
     /**
-     * Pairs an entry to render with an optional cancelled predecessor at the same time slot.
-     * The {@code cancelledSibling} is non-null only when a cancelled entry at the same start time
-     * has a <em>different</em> subject — indicating a true class replacement. Same-subject pairs
-     * (e.g. "cours maintenu" resolutions) carry a null sibling since no annotation is needed.
+     * Pairs an entry to render with the cancelled lessons it stands in for.
+     * {@code cancelledSiblings} holds only the ones with a <em>different</em> subject — a true
+     * class replacement. Same-subject pairs (e.g. "cours maintenu" resolutions) are left out,
+     * since no annotation is needed when the lesson still happens. The list has more than one
+     * element when a single long entry — an outing across the lunch break — takes over several
+     * consecutive lessons.
      */
-    record MergedEntry(TimetableEntry entry, TimetableEntry cancelledSibling, String extraEvalLabel) {
-        MergedEntry(TimetableEntry entry, TimetableEntry cancelledSibling) {
-            this(entry, cancelledSibling, null);
+    record MergedEntry(TimetableEntry entry, List<TimetableEntry> cancelledSiblings,
+                       String extraEvalLabel) {
+        MergedEntry(TimetableEntry entry, List<TimetableEntry> cancelledSiblings) {
+            this(entry, cancelledSiblings, null);
+        }
+
+        static MergedEntry alone(TimetableEntry entry) {
+            return new MergedEntry(entry, List.of(), null);
         }
     }
 
     /**
-     * Collapses time-slot conflicts into single {@link MergedEntry} objects.
+     * Collapses slot conflicts into single {@link MergedEntry} objects.
      *
-     * <p>When multiple entries share the same start time, Pronote typically sends:
+     * <p>When an entry is cancelled and another takes its place, Pronote sends both:
      * <ul>
      *   <li>a CANCELLED entry (the original/old slot), and</li>
      *   <li>an active entry (the replacement or the maintained class).</li>
      * </ul>
-     * This method hides cancelled entries whenever at least one active sibling exists at the
-     * same start time. If the cancelled sibling has a different subject (real replacement),
-     * it is carried as {@code cancelledSibling} for optional display in the card.
-     * Standalone cancellations (no active sibling) are kept as-is.
+     * The cancelled one is hidden and, when the subjects differ, carried on the surviving card as
+     * a {@code cancelledSibling} for the "Remplace&nbsp;:" note.
+     *
+     * <p>Which entry takes a slot over is {@link TimetableSlots}' call, not this method's, and it
+     * is not decided by a shared start time: a school outing running 11:00–13:00 takes over
+     * every lesson it runs across, which is why the pairing is resolved for the whole day up front
+     * rather than within one start-time group. Cancellations nothing covers are kept as-is.
      */
     static List<MergedEntry> collapseSlots(List<TimetableEntry> entries) {
         TimetableSlots slots = TimetableSlots.index(entries);
 
+        // Resolve the day's supersedings first: the entry taking a cancelled lesson over may sit
+        // in an earlier start-time group than the lesson itself.
+        Map<TimetableEntry, List<TimetableEntry>> takenOver = new LinkedHashMap<>();
+        Set<TimetableEntry> hidden = new HashSet<>();
+        for (TimetableEntry e : entries) {
+            if (!TimetableSlots.isInactive(e)) continue;
+            TimetableEntry taker = slots.supersederOf(e);
+            if (taker == null) continue;
+            takenOver.computeIfAbsent(taker, k -> new ArrayList<>()).add(e);
+            hidden.add(e);
+        }
+
         List<MergedEntry> result = new ArrayList<>();
         for (List<TimetableEntry> group : slots.slots()) {
-            List<TimetableEntry> active    = group.stream().filter(TimetableSlots::isActive).toList();
-            List<TimetableEntry> cancelled = group.stream().filter(TimetableSlots::isInactive).toList();
+            List<TimetableEntry> active = group.stream().filter(TimetableSlots::isActive).toList();
 
-            if (active.isEmpty()) {
-                // Standalone cancellations — show as-is
-                cancelled.forEach(e -> result.add(new MergedEntry(e, null)));
-            } else {
-                // Separate manual eval entries (synthetic, id starts with "manual:") from real ones.
-                // Manual evals at the same slot as a real same-subject entry are absorbed into
-                // that entry's extraEvalLabel rather than emitted as a second card.
-                Map<String, String> manualEvalBySubject = new LinkedHashMap<>();
-                List<TimetableEntry> realActive = new ArrayList<>();
-                for (TimetableEntry a : active) {
-                    if (TimetableSlots.isManual(a)) {
-                        manualEvalBySubject.put(a.getSubject(), a.getLessonLabel());
-                    } else {
-                        realActive.add(a);
-                    }
+            // Standalone cancellations — nothing occupies the slot, so show them as-is.
+            for (TimetableEntry c : group) {
+                if (TimetableSlots.isInactive(c) && !hidden.contains(c)) {
+                    result.add(MergedEntry.alone(c));
                 }
+            }
+            if (active.isEmpty()) continue;
 
-                if (realActive.isEmpty()) {
-                    // Only manual eval entries at this slot — emit each as its own card
-                    for (TimetableEntry a : active) {
-                        result.add(new MergedEntry(a, null));
-                    }
+            // Separate manual eval entries (synthetic, id starts with "manual:") from real ones.
+            // Manual evals at the same slot as a real same-subject entry are absorbed into
+            // that entry's extraEvalLabel rather than emitted as a second card.
+            Map<String, String> manualEvalBySubject = new LinkedHashMap<>();
+            List<TimetableEntry> realActive = new ArrayList<>();
+            for (TimetableEntry a : active) {
+                if (TimetableSlots.isManual(a)) {
+                    manualEvalBySubject.put(a.getSubject(), a.getLessonLabel());
                 } else {
-                    for (TimetableEntry a : realActive) {
-                        // The sibling is the entry `a` supersedes, and only when it is a different
-                        // subject: a same-subject pair is one lesson with changed details, which
-                        // needs no "Remplace :" note.
-                        TimetableEntry sibling = cancelled.stream()
-                            .filter(c -> TimetableSlots.superseder(c, group) == a)
-                            .filter(c -> !Objects.equals(c.getSubject(), a.getSubject()))
-                            .findFirst()
-                            .orElse(null);
-                        // Absorb same-subject manual eval; remaining unmatched ones stay in the map
-                        String extraEvalLabel = manualEvalBySubject.remove(a.getSubject());
-                        result.add(new MergedEntry(a, sibling, extraEvalLabel));
-                    }
-                    // Emit manual evals whose subject had no matching real entry at this slot
-                    for (TimetableEntry a : active) {
-                        if (TimetableSlots.isManual(a)
-                                && manualEvalBySubject.containsKey(a.getSubject())) {
-                            result.add(new MergedEntry(a, null));
-                        }
-                    }
+                    realActive.add(a);
+                }
+            }
+
+            if (realActive.isEmpty()) {
+                // Only manual eval entries at this slot — emit each as its own card
+                for (TimetableEntry a : active) {
+                    result.add(MergedEntry.alone(a));
+                }
+                continue;
+            }
+
+            for (TimetableEntry a : realActive) {
+                // A same-subject pair is one lesson with changed details, which needs no
+                // "Remplace :" note; only a different subject is a replacement worth naming.
+                List<TimetableEntry> siblings = takenOver.getOrDefault(a, List.of()).stream()
+                    .filter(c -> !Objects.equals(c.getSubject(), a.getSubject()))
+                    .toList();
+                // Absorb same-subject manual eval; remaining unmatched ones stay in the map
+                String extraEvalLabel = manualEvalBySubject.remove(a.getSubject());
+                result.add(new MergedEntry(a, siblings, extraEvalLabel));
+            }
+            // Emit manual evals whose subject had no matching real entry at this slot
+            for (TimetableEntry a : active) {
+                if (TimetableSlots.isManual(a)
+                        && manualEvalBySubject.containsKey(a.getSubject())) {
+                    result.add(MergedEntry.alone(a));
                 }
             }
         }
@@ -448,7 +470,7 @@ public class TimetableHtmlGenerator {
         }
 
         // Status / test badges (+ absorbed manual eval label when present)
-        List<String> badges = buildBadges(e);
+        List<String> badges = buildBadges(e, subjectLabel);
         if (me.extraEvalLabel() != null) {
             badges.add(badge("eval", me.extraEvalLabel()));
         }
@@ -458,11 +480,10 @@ public class TimetableHtmlGenerator {
             card.append("        </div>\n");
         }
 
-        // "Replaces" note — only shown when a different-subject cancelled entry was collapsed
-        TimetableEntry sibling = me.cancelledSibling();
-        if (sibling != null) {
-            String siblingSubject = displaySubject(sibling);
-            StringBuilder detail = new StringBuilder(esc(siblingSubject));
+        // "Replaces" note — one line per different-subject cancelled entry this card took over.
+        // A long entry (an outing across the lunch break) displaces several lessons at once.
+        for (TimetableEntry sibling : me.cancelledSiblings()) {
+            StringBuilder detail = new StringBuilder(esc(displaySubject(sibling)));
             if (sibling.getTeacher() != null && !sibling.getTeacher().isBlank()) {
                 detail.append(" \u00b7 ").append(esc(sibling.getTeacher()));
             }
@@ -478,9 +499,25 @@ public class TimetableHtmlGenerator {
         card.append("      </div>\n");
 
         return "    <div class=\"slot\">\n"
-             + "      <span class=\"slot__time\">" + timeTag(e.getStartTime().toLocalTime()) + "</span>\n"
+             + "      <span class=\"slot__time\">" + slotTime(e) + "</span>\n"
              + card
              + "    </div>\n";
+    }
+
+    /**
+     * The time shown beside a card: the start alone for an ordinary period, the full span for an
+     * entry that outlasts it. A "sortie pédagogique" running 11:00–13:00 occupies two rows of
+     * the grid and swallows the lunch marker, so "11h00" on its own would read as a one-hour
+     * lesson and leave the rest of the morning unaccounted for.
+     */
+    private static String slotTime(TimetableEntry e) {
+        LocalTime from = e.getStartTime().toLocalTime();
+        String head = timeTag(from);
+        if (e.getEndTime() == null) return head;
+        LocalTime to = e.getEndTime().toLocalTime();
+        boolean sameDay = e.getEndTime().toLocalDate().equals(e.getStartTime().toLocalDate());
+        if (!sameDay || !to.isAfter(from.plusHours(1))) return head;
+        return head + "\n      <span class=\"slot__time-end\">" + timeTag(to) + "</span>";
     }
 
     // -------------------------------------------------------------------------
@@ -547,7 +584,13 @@ public class TimetableHtmlGenerator {
     // Badge helpers
     // -------------------------------------------------------------------------
 
-    private static List<String> buildBadges(TimetableEntry e) {
+    /**
+     * @param subjectLabel the name already printed on the card, so a badge does not repeat it.
+     *                     An outing usually arrives titled "Sortie pédagogique" and would
+     *                     otherwise show that twice; one named "Sortie au musée" still earns the
+     *                     badge, which is what marks the slot as something other than a lesson.
+     */
+    private static List<String> buildBadges(TimetableEntry e, String subjectLabel) {
         List<String> badges = new ArrayList<>();
         switch (e.getStatus()) {
             case CANCELLED -> {
@@ -565,6 +608,8 @@ public class TimetableHtmlGenerator {
                 }
             }
         }
+        if (e.isOuting())    addUnlessRedundant(badges, subjectLabel, "Sortie pédagogique");
+        if (e.isDetention()) addUnlessRedundant(badges, subjectLabel, "Retenue");
         if (e.isEval()) {
             String label = e.getLessonLabel() != null ? e.getLessonLabel() : "\u00c9val. de comp\u00e9tences";
             badges.add(badge("eval", label));
@@ -573,6 +618,12 @@ public class TimetableHtmlGenerator {
             badges.add(badge("test", label));
         }
         return badges;
+    }
+
+    /** Adds an {@code outing} badge unless the card's subject line already says the same thing. */
+    private static void addUnlessRedundant(List<String> badges, String subjectLabel, String label) {
+        if (subjectLabel != null && subjectLabel.equalsIgnoreCase(label)) return;
+        badges.add(badge("outing", label));
     }
 
     private static String badge(String type, String text) {
@@ -683,6 +734,7 @@ public class TimetableHtmlGenerator {
           --bdg-test-bg:   #dbeafe; --bdg-test-fg:   #1e40af;
           --bdg-eval-bg:   #fef3c7; --bdg-eval-fg:   #92400e;
           --bdg-exempt-bg: #f3e8ff; --bdg-exempt-fg: #6b21a8;
+          --bdg-outing-bg: #dcfce7; --bdg-outing-fg: #166534;
 
           --link-fg: #1e40af;
         }
@@ -701,6 +753,7 @@ public class TimetableHtmlGenerator {
             --bdg-test-bg:   #0c1f40; --bdg-test-fg:   #93c5fd;
             --bdg-eval-bg:   #3d2800; --bdg-eval-fg:   #fcd34d;
             --bdg-exempt-bg: #2d0a5e; --bdg-exempt-fg: #d8b4fe;
+            --bdg-outing-bg: #08301b; --bdg-outing-fg: #86efac;
 
             --link-fg: #93c5fd;
           }
@@ -794,6 +847,18 @@ public class TimetableHtmlGenerator {
           white-space: nowrap;
         }
 
+        /* End of a span that outlasts its own hour, stacked under the start time. */
+        .slot__time-end {
+          display: block;
+          margin-top: 0.2rem;
+          font-weight: 500;
+          opacity: 0.75;
+        }
+
+        .slot__time-end::before {
+          content: "\u2193\u00a0";
+        }
+
         /* ----- Lesson card ----- */
         .lesson {
           margin: 0.3125rem 0;
@@ -873,6 +938,7 @@ public class TimetableHtmlGenerator {
         .badge--test   { background: var(--bdg-test-bg);   color: var(--bdg-test-fg); }
         .badge--eval   { background: var(--bdg-eval-bg);   color: var(--bdg-eval-fg); }
         .badge--exempt { background: var(--bdg-exempt-bg); color: var(--bdg-exempt-fg); }
+        .badge--outing { background: var(--bdg-outing-bg); color: var(--bdg-outing-fg); }
 
         /* ----- Gap and lunch slots ----- */
         .slot__content {

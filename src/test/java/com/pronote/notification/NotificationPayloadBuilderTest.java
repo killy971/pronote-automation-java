@@ -317,6 +317,14 @@ class NotificationPayloadBuilderTest {
         return e;
     }
 
+    /** The same, with an explicit end so the entry can outlast its own hour. */
+    private static TimetableEntry spanEntry(String id, String subject, LocalDateTime start,
+                                            LocalDateTime end, EntryStatus status, String room) {
+        TimetableEntry e = slotEntry(id, subject, start, status, room);
+        e.setEndTime(end);
+        return e;
+    }
+
     @Test
     void roomChange_isReportedAsAChange_notACancellation() {
         // Pronote's real shape for a room change: the original slot arrives as a new CANCELLED
@@ -411,6 +419,118 @@ class NotificationPayloadBuilderTest {
         assertTrue(p.title().startsWith("✗ SYN_MATHS Prof. absent"), "got: " + p.title());
         assertEquals(NotificationPayload.Priority.HIGH, p.priority());
         assertTrue(p.body().contains("Prof. absent"), "got: " + p.body());
+    }
+
+    @Test
+    void anOutingAcrossTheLunchBreak_readsAsAReplacement_notACancellation() {
+        // The case this whole slot reading exists for, in its awkward form: Pronote cancels the
+        // 11:00 lesson and puts a single 11:00–13:00 outing in its place, so the replacement
+        // neither shares the lesson's hours nor ends with it.
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 11, 0);
+        TimetableEntry ghost = slotEntry("MATHS@11:CANCELLED", "SYN_MATHS", start,
+                EntryStatus.CANCELLED, "A206");
+        ghost.setStatusLabel("Cours annulé");
+        TimetableEntry outing = spanEntry("SORTIE@11:NORMAL", "Sortie pédagogique", start,
+                start.plusHours(2), EntryStatus.NORMAL, "");
+        outing.setOuting(true);
+        TimetableEntry gone = slotEntry("MATHS@11:NORMAL", "SYN_MATHS", start,
+                EntryStatus.NORMAL, "A206");
+
+        // The status flip reaches the diff as an addition of the cancelled copy plus a removal of
+        // the normal one — Pronote does not edit the entry in place.
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(
+                List.of(ghost, outing), List.of(gone), Map.of());
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(ghost, outing));
+
+        assertFalse(p.title().contains("✗"), "an occupied slot must not read as cancelled: " + p.title());
+        assertTrue(p.title().startsWith("🔄 Sortie pédagogique remplace SYN_MATHS"), "got: " + p.title());
+        // One line: no stray "- SYN_MATHS [supprimé]" for the lesson's pre-cancellation copy.
+        assertEquals(1, p.body().lines().count(), "got: " + p.body());
+        assertTrue(p.body().contains("→ 13h00"), "the new span must be in the line: " + p.body());
+    }
+
+    @Test
+    void oneOutingTakingOverTwoLessons_namesBoth() {
+        LocalDateTime eleven = LocalDateTime.of(2030, 5, 6, 11, 0);
+        TimetableEntry outing = spanEntry("o", "Sortie pédagogique", eleven,
+                eleven.plusHours(2), EntryStatus.NORMAL, "");
+        TimetableEntry first = slotEntry("g1", "SYN_MATHS", eleven, EntryStatus.CANCELLED, "A206");
+        TimetableEntry second = slotEntry("g2", "SYN_FRANCAIS", eleven.plusHours(1),
+                EntryStatus.CANCELLED, "B104");
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(
+                List.of(first, second, outing), List.of(), Map.of());
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(first, second, outing));
+
+        assertTrue(p.body().contains("remplace SYN_MATHS"), "got: " + p.body());
+        assertTrue(p.body().contains("remplace SYN_FRANCAIS"), "got: " + p.body());
+        assertFalse(p.body().contains("✗"), "neither lesson is a bare cancellation: " + p.body());
+        assertEquals(2, p.body().lines().count(), "got: " + p.body());
+    }
+
+    @Test
+    void aCancellationIsNotAlsoReportedAsARemovedLesson() {
+        // The id carries the status, so a NORMAL → CANCELLED flip arrives as one addition and one
+        // removal. Reported as-is that is "✗ SYN_MATHS" plus "- SYN_MATHS [supprimé]".
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 11, 0);
+        TimetableEntry ghost = slotEntry("MATHS@11:CANCELLED", "SYN_MATHS", start,
+                EntryStatus.CANCELLED, "A206");
+        ghost.setStatusLabel("Cours annulé");
+        TimetableEntry gone = slotEntry("MATHS@11:NORMAL", "SYN_MATHS", start,
+                EntryStatus.NORMAL, "A206");
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(
+                List.of(ghost), List.of(gone), Map.of());
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(ghost));
+
+        assertEquals("✗ SYN_MATHS Cours annulé · lun. 6/05 11h00", p.title());
+        assertEquals(1, p.body().lines().count(), "got: " + p.body());
+        assertFalse(p.body().contains("supprimé"), "got: " + p.body());
+        assertEquals(NotificationPayload.Priority.HIGH, p.priority());
+    }
+
+    @Test
+    void aGenuinelyDroppedLessonIsStillReportedAsRemoved() {
+        // The twin suppression must not swallow a lesson Pronote really took off the week.
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 11, 0);
+        TimetableEntry ghost = slotEntry("MATHS@11:CANCELLED", "SYN_MATHS", start,
+                EntryStatus.CANCELLED, "A206");
+        TimetableEntry other = slotEntry("ANGLAIS@14:NORMAL", "SYN_ANGLAIS", start.plusHours(3),
+                EntryStatus.NORMAL, "A101");
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(
+                List.of(ghost), List.of(other), Map.of());
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(ghost));
+
+        assertTrue(p.body().contains("- SYN_ANGLAIS"), "got: " + p.body());
+        assertTrue(p.body().contains("supprimé"), "got: " + p.body());
+    }
+
+    @Test
+    void aWithdrawnCancellation_readsAsALessonPutBackOn() {
+        // Pronote reverses a cancellation: the cancelled copy goes, the normal one returns. Read
+        // entry by entry that is a removal, which announced a deleted lesson at HIGH priority for
+        // a class that is in fact back on.
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 11, 0);
+        TimetableEntry back = slotEntry("MATHS@11:NORMAL", "SYN_MATHS", start,
+                EntryStatus.NORMAL, "A206");
+        TimetableEntry wasCancelled = slotEntry("MATHS@11:CANCELLED", "SYN_MATHS", start,
+                EntryStatus.CANCELLED, "A206");
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(
+                List.of(back), List.of(wasCancelled), Map.of());
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(back));
+
+        assertEquals("✓ SYN_MATHS rétabli · lun. 6/05 11h00", p.title());
+        assertEquals(1, p.body().lines().count(), "got: " + p.body());
+        assertTrue(p.body().contains("cours rétabli"), "got: " + p.body());
+        assertEquals(NotificationPayload.Priority.NORMAL, p.priority());
     }
 
     @Test

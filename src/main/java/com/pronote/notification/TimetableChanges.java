@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -38,6 +39,8 @@ final class TimetableChanges {
     private final List<SlotPair> changes = new ArrayList<>();
     /** Newly announced upcoming competence evaluations. */
     private final List<TimetableEntry> addedEvals = new ArrayList<>();
+    /** Lessons whose cancellation Pronote withdrew — the class is back on. */
+    private final List<TimetableEntry> reinstatements = new ArrayList<>();
     /** Plain new lessons, not part of any slot pairing. */
     private final List<TimetableEntry> additions = new ArrayList<>();
     private final List<TimetableEntry> removals;
@@ -81,6 +84,17 @@ final class TimetableChanges {
             }
         }
 
+        // The reverse edit: Pronote withdraws a cancellation. The cancelled copy is removed and the
+        // normal one added back, so without pairing them the run announces a lesson as deleted and
+        // promotes the notification to HIGH for a class that is in fact back on.
+        for (TimetableEntry removed : diff.removed()) {
+            if (!TimetableSlots.isInactive(removed)) continue;
+            TimetableEntry back = twinOf(removed, diff.added());
+            if (back == null || TimetableSlots.isInactive(back)) continue;
+            reinstatements.add(back);
+            covered.add(back);
+        }
+
         for (TimetableEntry e : diff.added()) {
             if (covered.contains(e)) continue;
             if (e.isEval()) addedEvals.add(e);
@@ -90,7 +104,34 @@ final class TimetableChanges {
             if (covered.contains(e.getKey())) continue;
             modifications.put(e.getKey(), e.getValue());
         }
-        removals = diff.removed();
+        removals = new ArrayList<>(diff.removed());
+        // Both pairings leave the other half of the status flip in diff.removed(); the bucket line
+        // already tells it, so drop it rather than report the same lesson twice.
+        removals.removeIf(r -> twinOf(r, ghosts) != null || twinOf(r, reinstatements) != null);
+    }
+
+    /**
+     * The same lesson on the other side of a status flip, or {@code null} when {@code candidates}
+     * holds no such entry.
+     *
+     * <p>A {@code TimetableEntry} id carries its status ({@code SUBJECT@start:NORMAL}), so Pronote
+     * flipping a lesson to {@code estAnnule} does not reach the diff as a field change: the
+     * cancelled copy is <em>added</em> and the normal one <em>removed</em>. Reported as-is that is
+     * one event told twice ("✗ Mathématiques" and "- Mathématiques [supprimé]"), with the removal
+     * counted again in "N modif. EDT" and promoting the whole notification to HIGH.
+     *
+     * <p>Only an exact subject + start-time match counts: a lesson Pronote genuinely dropped from
+     * the week still has to be announced.
+     */
+    private static TimetableEntry twinOf(TimetableEntry entry, List<TimetableEntry> candidates) {
+        for (TimetableEntry candidate : candidates) {
+            if (candidate != entry
+                    && Objects.equals(candidate.getSubject(), entry.getSubject())
+                    && Objects.equals(candidate.getStartTime(), entry.getStartTime())) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     /**
@@ -113,6 +154,7 @@ final class TimetableChanges {
     List<SlotPair> replacements()                      { return replacements; }
     List<SlotPair> changes()                           { return changes; }
     List<TimetableEntry> addedEvals()                  { return addedEvals; }
+    List<TimetableEntry> reinstatements()              { return reinstatements; }
     List<TimetableEntry> additions()                   { return additions; }
     List<TimetableEntry> removals()                    { return removals; }
     Map<TimetableEntry, List<FieldChange>> modifications() { return modifications; }
@@ -121,12 +163,13 @@ final class TimetableChanges {
     boolean isEmpty() {
         return cancellations.isEmpty() && replacements.isEmpty() && changes.isEmpty()
                 && addedEvals.isEmpty() && additions.isEmpty() && removals.isEmpty()
-                && modifications.isEmpty();
+                && reinstatements.isEmpty() && modifications.isEmpty();
     }
 
     /** Timetable changes other than cancellations, replacements and new evals. */
     long otherChangeCount() {
-        return changes.size() + additions.size() + removals.size() + modifications.size();
+        return changes.size() + reinstatements.size() + additions.size() + removals.size()
+                + modifications.size();
     }
 
     /** Cancellations and replacements both mean the listed lesson is not happening. */
