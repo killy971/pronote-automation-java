@@ -7,6 +7,7 @@ import com.pronote.domain.EntryStatus;
 import com.pronote.domain.Grade;
 import com.pronote.domain.SchoolLifeEvent;
 import com.pronote.domain.TimetableEntry;
+import com.pronote.domain.TimetableSlots;
 import com.pronote.persistence.DiffBundle;
 import com.pronote.persistence.DiffResult;
 import com.pronote.persistence.FieldChange;
@@ -128,9 +129,7 @@ public final class NotificationPayloadBuilder {
         if (!cancelled.isEmpty()) {
             if (cancelled.size() == 1) {
                 TimetableEntry e = cancelled.get(0);
-                String reason = e.getStatusLabel() != null && !e.getStatusLabel().isBlank()
-                        ? e.getStatusLabel() : "annulé";
-                tokens.add("✗ " + subject(e) + " " + reason + " · " + fmtDateTime(e.getStartTime()));
+                tokens.add("✗ " + subject(e) + " " + reason(e) + " · " + fmtDateTime(e.getStartTime()));
             } else {
                 tokens.add("✗ " + cancelled.size() + " cours annulés");
             }
@@ -283,11 +282,8 @@ public final class NotificationPayloadBuilder {
     private static void appendTimetableLines(StringBuilder b, TimetableChanges tt) {
         // Cancellations first: a lesson that is off outranks anything else in the section.
         for (TimetableEntry e : tt.cancellations()) {
-            b.append("✗ ").append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()));
-            if (e.getStatusLabel() != null && !e.getStatusLabel().isBlank()) {
-                b.append(" · ").append(e.getStatusLabel());
-            }
-            b.append("\n");
+            b.append("✗ ").append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()))
+                    .append(" · ").append(reason(e)).append("\n");
         }
         for (TimetableChanges.SlotPair p : tt.replacements()) {
             TimetableEntry c = p.current();
@@ -334,7 +330,7 @@ public final class NotificationPayloadBuilder {
         }
         for (Map.Entry<TimetableEntry, List<FieldChange>> entry : tt.modifications().entrySet()) {
             TimetableEntry e = entry.getKey();
-            String prefix = e.getStatus() == EntryStatus.CANCELLED ? "✗ " : "~ ";
+            String prefix = TimetableSlots.isInactive(e) ? "✗ " : "~ ";
             b.append(prefix).append(subject(e)).append(" — ").append(fmtDateTime(e.getStartTime()));
             String detail = fmtTimetableChanges(e, entry.getValue());
             if (!detail.isBlank()) b.append(" · ").append(detail);
@@ -475,6 +471,15 @@ public final class NotificationPayloadBuilder {
         }
         String label = p.current().getStatusLabel();
         return label != null && !label.isBlank() ? truncate(label, 30) : "modifié";
+    }
+
+    /**
+     * Why the lesson is not happening: Pronote's own label when it sent one, else a word that
+     * matches the status — an exemption is "dispensé", not "annulé".
+     */
+    private static String reason(TimetableEntry e) {
+        if (e.getStatusLabel() != null && !e.getStatusLabel().isBlank()) return e.getStatusLabel();
+        return e.getStatus() == EntryStatus.EXEMPTED ? "dispensé" : "annulé";
     }
 
     /**

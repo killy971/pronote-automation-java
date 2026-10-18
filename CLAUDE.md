@@ -645,7 +645,9 @@ class"; slot by slot it is one lesson that moved rooms.
 `TimetableSlots` (in `domain`) holds that second reading and both consumers apply it:
 
 - `TimetableHtmlGenerator.collapseSlots` merges the pair into one card, annotating `Remplace :`
-  only when the superseding entry is a *different* subject;
+  only when the superseding entry is a *different* subject. A cancellation with **no** superseder is
+  always rendered — a synthetic manual eval sharing the hour used to make it vanish from the day
+  entirely, since the slot looked occupied;
 - `TimetableChanges` buckets the diff the same way, so `NotificationPayloadBuilder` reports a room
   change as `🔀 Mathématiques — mer. 9/09 08h00 · salle B303 → B203` at NORMAL priority instead of
   `✗ Mathématiques Cours annulé` at HIGH.
@@ -677,8 +679,8 @@ overload falls back to the diff's own entries and is for tests.
 ### Status flips arrive as a pair, not as a field change
 
 A `TimetableEntry` id carries its status (`SUBJECT@start:NORMAL`), so Pronote flipping `estAnnule`
-never reaches the diff as a modification: the cancelled copy is **added** and the normal one
-**removed**. Reported as-is that is one event told twice — `✗ Mathématiques` *and*
+or `estExempte` never reaches the diff as a modification: the inactive copy is **added** and the
+normal one **removed**. Reported as-is that is one event told twice — `✗ Mathématiques` *and*
 `- Mathématiques [supprimé]` — with the removal counted again in `N modif. EDT`.
 `TimetableChanges` drops the removed twin (exact subject + start-time match only, so a lesson
 Pronote genuinely took off the week is still announced).
@@ -687,12 +689,23 @@ The reverse edit is handled as its own bucket: when the cancelled copy is remove
 added back, the lesson is **reinstated**, reported `✓ Subject rétabli` at NORMAL priority. Without
 that, withdrawing a cancellation announced a deleted lesson at HIGH for a class that is back on.
 
+**Both consumers test `TimetableSlots.isInactive`, never `status == CANCELLED`.** An exemption
+(`estExempte`) is equally a lesson the child is not attending, and the view has always collapsed it
+as one; reading only `CANCELLED` in `TimetableChanges` made the two disagree — an exemption went out
+as a plain `+ Subject` beside the active twin's own line, and the `NORMAL → EXEMPTED` flip
+double-reported exactly as the cancellation one did. The reason word follows the status, so an
+exemption reads `✗ Subject dispensé`, not `annulé`.
+
 ### Outings and other non-lesson slots
 
 `estSortiePedagogique` and `estRetenue` map to `TimetableEntry.outing` / `.detention`. These are the
 entries Pronote sends with **no subject** (no `G=16` item in `ListeContenus`); left blank they render
 as a nameless card, read as "remplace" nothing, and take an id of `@<start>:NORMAL`. The scraper
 falls back to Pronote's own `L` title, then to "Sortie pédagogique" / "Retenue".
+
+`TimetableDiffFilter.isNoteworthyTimetableEntry` counts them as noteworthy. They carry status
+`NORMAL` and no `statusLabel`, so without that an outing in a newly discovered furthest week was
+suppressed as an ordinary lesson — the one entry in that week the reader actually needs.
 
 They are also the entries that need `DateDuCoursFin`: `duree` counts teaching slots, so an outing
 spanning the lunch break would otherwise end an hour early. The view shows both ends of any span

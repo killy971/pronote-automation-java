@@ -534,6 +534,55 @@ class NotificationPayloadBuilderTest {
     }
 
     @Test
+    void anExemptionIsReadAsASlotToo_notAsAPlainAddition() {
+        // estExempte is equally a lesson the child is not attending. The view has always read it
+        // that way; the notification read only estAnnule, so an exemption went out as "+ Subject"
+        // next to the active twin's own line.
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 8, 0);
+        TimetableEntry exempt = slotEntry("SPORT@08:EXEMPTED", "SYN_SPORT", start,
+                EntryStatus.EXEMPTED, "GYM");
+        TimetableEntry gone = slotEntry("SPORT@08:NORMAL", "SYN_SPORT", start,
+                EntryStatus.NORMAL, "GYM");
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(
+                List.of(exempt), List.of(gone), Map.of());
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(exempt));
+
+        // "dispensé", not "annulé" — the status picks the word when Pronote sends no label.
+        assertEquals("✗ SYN_SPORT dispensé · lun. 6/05 08h00", p.title());
+        assertEquals(1, p.body().lines().count(), "got: " + p.body());
+        assertFalse(p.body().contains("supprimé"), "got: " + p.body());
+    }
+
+    @Test
+    void anExemptedGhostWithTheLessonStillInTheSlot_isAChangeNotALoss() {
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 8, 0);
+        TimetableEntry exempt = slotEntry("g", "SYN_SPORT", start, EntryStatus.EXEMPTED, "GYM A");
+        TimetableEntry current = slotEntry("c", "SYN_SPORT", start, EntryStatus.NORMAL, "GYM B");
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(List.of(exempt), List.of(), Map.of());
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(exempt, current));
+
+        assertTrue(p.body().startsWith("🔀 SYN_SPORT"), "got: " + p.body());
+        assertEquals(NotificationPayload.Priority.NORMAL, p.priority());
+    }
+
+    @Test
+    void aCancellationWithoutAPronoteLabel_saysAnnule() {
+        LocalDateTime start = LocalDateTime.of(2030, 5, 6, 8, 0);
+        TimetableEntry ghost = slotEntry("g", "SYN_MATHS", start, EntryStatus.CANCELLED, "B303");
+        DiffResult<TimetableEntry> ttDiff = new DiffResult<>(List.of(ghost), List.of(), Map.of());
+
+        NotificationPayload p = NotificationPayloadBuilder.build(
+                empty(), ttDiff, empty(), empty(), empty(), List.of(ghost));
+
+        assertEquals("✗ SYN_MATHS annulé · lun. 6/05 08h00", p.title());
+        assertTrue(p.body().endsWith("· annulé"), "got: " + p.body());
+    }
+
+    @Test
     void teacherSubstitution_readsAsAChange() {
         LocalDateTime start = LocalDateTime.of(2030, 5, 6, 8, 0);
         TimetableEntry ghost = slotEntry("g", "SYN_MATHS", start, EntryStatus.CANCELLED, "B303");

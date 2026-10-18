@@ -1,6 +1,5 @@
 package com.pronote.notification;
 
-import com.pronote.domain.EntryStatus;
 import com.pronote.domain.TimetableEntry;
 import com.pronote.domain.TimetableSlots;
 import com.pronote.persistence.DiffResult;
@@ -54,17 +53,23 @@ final class TimetableChanges {
     private TimetableChanges(DiffResult<TimetableEntry> diff, List<TimetableEntry> currentTimetable) {
         TimetableSlots slots = TimetableSlots.index(slotContext(diff, currentTimetable));
 
-        // Entries the diff surfaces as newly cancelled: a modified entry whose status flipped, or
-        // an added entry that arrives already cancelled — Pronote's usual shape for a room change.
+        // Entries the diff surfaces as newly not-happening: a modified entry whose status flipped,
+        // or an added entry that arrives already inactive — Pronote's usual shape for a room change.
+        //
+        // The test is TimetableSlots.isInactive, not "status == CANCELLED": an exemption
+        // (estExempte) is equally a lesson the child is not attending, and the view has always read
+        // it that way. Reading only CANCELLED here made the two consumers disagree — an exemption
+        // went out as a plain "+ Subject" addition, alongside the active twin's own line, and the
+        // NORMAL → EXEMPTED flip double-reported exactly as the cancellation one used to.
         List<TimetableEntry> ghosts = new ArrayList<>();
         for (Map.Entry<TimetableEntry, List<FieldChange>> e : diff.modified().entrySet()) {
-            if (e.getKey().getStatus() == EntryStatus.CANCELLED
+            if (TimetableSlots.isInactive(e.getKey())
                     && e.getValue().stream().anyMatch(fc -> "status".equals(fc.fieldName()))) {
                 ghosts.add(e.getKey());
             }
         }
         for (TimetableEntry e : diff.added()) {
-            if (e.getStatus() == EntryStatus.CANCELLED) ghosts.add(e);
+            if (TimetableSlots.isInactive(e)) ghosts.add(e);
         }
 
         // Entries whose own added/modified line is superseded by a bucket line below.

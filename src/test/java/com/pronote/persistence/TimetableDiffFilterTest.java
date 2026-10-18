@@ -110,6 +110,36 @@ class TimetableDiffFilterTest {
     }
 
     @Test
+    void isNoteworthy_outing_isTrue() {
+        // An outing carries status NORMAL and no status label, so it would otherwise be suppressed
+        // along with the ordinary lessons of a newly discovered week.
+        TimetableEntry e = entry("x", MONDAY_FUTURE, EntryStatus.NORMAL);
+        e.setOuting(true);
+        assertTrue(TimetableDiffFilter.isNoteworthyTimetableEntry(e));
+    }
+
+    @Test
+    void isNoteworthy_detention_isTrue() {
+        TimetableEntry e = entry("x", MONDAY_FUTURE, EntryStatus.NORMAL);
+        e.setDetention(true);
+        assertTrue(TimetableDiffFilter.isNoteworthyTimetableEntry(e));
+    }
+
+    @Test
+    void newlyDiscoveredWeek_keepsAnOuting_whileSuppressingTheOrdinaryLessons() {
+        TimetableEntry lesson = entry("lesson", MONDAY_FUTURE, EntryStatus.NORMAL);
+        TimetableEntry outing = entry("outing", MONDAY_FUTURE, EntryStatus.NORMAL);
+        outing.setOuting(true);
+
+        DiffResult<TimetableEntry> out = filter.filter(
+                diff(List.of(lesson, outing), List.of(), Map.of()),
+                List.of(entry("old", MONDAY_CURRENT, EntryStatus.NORMAL)),
+                MONDAY_FUTURE, NOW);
+
+        assertEquals(List.of(outing), out.added());
+    }
+
+    @Test
     void isNoteworthy_eval_isTrue() {
         assertTrue(TimetableDiffFilter.isNoteworthyTimetableEntry(
                 evalEntry("x", MONDAY_FUTURE)));

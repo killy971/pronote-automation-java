@@ -148,7 +148,9 @@ public class TimetableDiffFilter {
      *       "Exceptionnel", "Cours modifié"), or</li>
      *   <li>{@code isEval} is true — upcoming competence evaluations are always
      *       noteworthy regardless of whether the week is newly discovered, because the
-     *       user needs lead time to prepare.</li>
+     *       user needs lead time to prepare, or</li>
+     *   <li>{@code outing} or {@code detention} is true — a school outing has status NORMAL and
+     *       no status label, but it is the opposite of an ordinary lesson.</li>
      * </ul>
      */
     public static boolean isNoteworthyTimetableEntry(TimetableEntry item) {
@@ -156,6 +158,12 @@ public class TimetableDiffFilter {
             return true;
         }
         if (item.isEval()) {
+            return true;
+        }
+        // An outing or a detention carries status NORMAL and usually no statusLabel, so without
+        // this it counted as an ordinary lesson and was suppressed along with the rest of a newly
+        // discovered week — the one entry in that week the reader actually needs.
+        if (item.isOuting() || item.isDetention()) {
             return true;
         }
         return item.getStatusLabel() != null && !item.getStatusLabel().isBlank();
