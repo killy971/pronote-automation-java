@@ -58,6 +58,7 @@ final class PipelineTestHarness {
     final Path configFile;
     final Path manualEntriesFile;
     final Path manualAttachmentDir;
+    final Path portalViewDir;
     final Path timetableViewDir;
     final Path assignmentViewDir;
     final Path evaluationViewDir;
@@ -93,19 +94,16 @@ final class PipelineTestHarness {
         this.manualEntriesFile = tempDir.resolve("manual-entries.yaml");
         this.manualAttachmentDir = tempDir.resolve("manual-attachments");
         Path views = tempDir.resolve("views");
+        this.portalViewDir = views;
         this.timetableViewDir = views.resolve("timetable");
         this.assignmentViewDir = views.resolve("assignments");
         this.evaluationViewDir = views.resolve("evaluations");
         this.schoolLifeViewDir = views.resolve("school-life");
     }
 
-    /**
-     * The portal index the pipeline writes. Before {@code portalView.outputDirectory} existed it
-     * was hardcoded to {@code ./data/views/index.html}, relative to the working directory —
-     * Gradle runs the tests from {@code build/test-workdir} so that never touches real data.
-     */
+    /** The portal index the pipeline writes, under {@code portalView.outputDirectory}. */
     Path portalIndexFile() {
-        return Path.of("data", "views", "index.html");
+        return portalViewDir.resolve("index.html");
     }
 
     String readPortal() {
@@ -190,6 +188,8 @@ final class PipelineTestHarness {
             .append("schoolLifeView:\n")
             .append("  enabled: ").append(schoolLifeViewEnabled).append("\n")
             .append("  outputDirectory: \"").append(schoolLifeViewDir).append("\"\n")
+            .append("portalView:\n")
+            .append("  outputDirectory: \"").append(portalViewDir).append("\"\n")
             .append("viewPublish:\n")
             .append("  enabled: false\n")
             .append("manualEntries:\n")
@@ -328,9 +328,6 @@ final class PipelineTestHarness {
                         copyMasked(f, out.resolve("root").resolve(root.relativize(f).toString()));
                     }
                 }
-            }
-            if (Files.isRegularFile(portalIndexFile())) {
-                copyMasked(portalIndexFile(), out.resolve("portal-index.html"));
             }
             if (extraText != null) {
                 // getBytes replaces malformed UTF-16 (a title cut mid-emoji) instead of throwing.

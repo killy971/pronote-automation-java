@@ -104,16 +104,16 @@ final class ViewPipeline {
 
     /**
      * Generates the portal index (one card per enabled view), writes it to
-     * {@code ./data/views/index.html}, and returns the HTML (the publisher needs it as well).
+     * {@code portalView.outputDirectory}, and returns the HTML (the publisher needs it as well).
      */
     String writePortalIndex() {
         String html = new PortalIndexHtmlGenerator().generate(portalSections());
+        Path file = Path.of(config.getPortalView().getOutputDirectory()).resolve("index.html");
         try {
-            Path dir = Path.of("./data/views");
-            Files.createDirectories(dir);
-            Files.writeString(dir.resolve("index.html"), html, StandardCharsets.UTF_8);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, html, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new UncheckedIOException("Failed to write portal index to ./data/views/index.html", e);
+            throw new UncheckedIOException("Failed to write portal index to " + file, e);
         }
         return html;
     }

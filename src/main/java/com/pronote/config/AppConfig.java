@@ -22,6 +22,7 @@ public class AppConfig {
     private AssignmentViewConfig assignmentView = new AssignmentViewConfig();
     private EvaluationViewConfig evaluationView = new EvaluationViewConfig();
     private SchoolLifeViewConfig schoolLifeView = new SchoolLifeViewConfig();
+    private PortalViewConfig portalView = new PortalViewConfig();
     private ViewPublishConfig viewPublish = new ViewPublishConfig();
     private ManualEntriesConfig manualEntries = new ManualEntriesConfig();
 
@@ -64,6 +65,9 @@ public class AppConfig {
 
     public SchoolLifeViewConfig getSchoolLifeView() { return schoolLifeView; }
     public void setSchoolLifeView(SchoolLifeViewConfig schoolLifeView) { this.schoolLifeView = schoolLifeView; }
+
+    public PortalViewConfig getPortalView() { return portalView; }
+    public void setPortalView(PortalViewConfig portalView) { this.portalView = portalView; }
 
     public ViewPublishConfig getViewPublish() { return viewPublish; }
     public void setViewPublish(ViewPublishConfig viewPublish) { this.viewPublish = viewPublish; }
@@ -522,6 +526,19 @@ public class AppConfig {
      * Path to the optional manual entries YAML file.
      * If the file does not exist, it is silently ignored (no error).
      */
+    /**
+     * Configuration for the portal {@code index.html} that links all enabled views.
+     * For the portal's relative links (e.g. {@code timetable/index.html}) and each view's
+     * back-link ({@code ../index.html}) to work, the output directory should be the common
+     * parent of the per-view output directories.
+     */
+    public static class PortalViewConfig {
+        private String outputDirectory = "./data/views";
+
+        public String getOutputDirectory() { return outputDirectory; }
+        public void setOutputDirectory(String outputDirectory) { this.outputDirectory = outputDirectory; }
+    }
+
     public static class ManualEntriesConfig {
         private String file = "./manual-entries.yaml";
         /**

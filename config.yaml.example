@@ -146,6 +146,12 @@ manualEntries:
   # name is re-copied on the next run.
   attachmentDir: "./manual-attachments"
 
+portalView:
+  # Where the portal index.html (card grid linking all enabled views) is written.
+  # Must be the common parent of the per-view output directories above for the
+  # portal's relative links and each view's "← Pronote" back-link to work.
+  outputDirectory: "./data/views"
+
 viewPublish:
   # Publish generated view files to a local GitHub Pages repository clone.
   # When enabled, timetable and assignment HTML files are copied into the repo,

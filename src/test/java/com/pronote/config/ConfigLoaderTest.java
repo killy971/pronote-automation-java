@@ -52,6 +52,8 @@ class ConfigLoaderTest {
         assertEquals(AppConfig.LoginMode.PARENT, cfg.getPronote().getLoginMode());
         assertEquals(2000L, cfg.getSafety().getMinDelayMs());
         assertEquals(3, cfg.getSafety().getMaxLoginFailures());
+        assertEquals("./data/views", cfg.getPortalView().getOutputDirectory(),
+                "portal index stays where it was before the key existed");
         assertEquals(360, cfg.getSafety().getLockoutCooldownMinutes());
         assertEquals(120, cfg.getSafety().getSessionProbeMaxAgeSeconds());
         // notifications default to disabled
