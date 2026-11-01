@@ -193,8 +193,7 @@ public final class FetchRunner {
             views.renderSchoolLife(current.schoolLife());
         }
         String portalHtml = views.writePortalIndex();
-        views.publish(dataDir, portalHtml, new ViewPipeline.Published(views.timetableEnabled(),
-                views.assignmentsEnabled(), views.evaluationsEnabled(), views.schoolLifeEnabled()));
+        views.publish(dataDir, portalHtml);
 
         log.info("Job completed successfully.");
     }

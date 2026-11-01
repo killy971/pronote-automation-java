@@ -30,7 +30,8 @@ import java.util.Map;
  * Static-HTML view generation shared by all modes: per-type renderers, the portal index, and
  * the optional GitHub Pages publication.
  *
- * <p>The render methods do not gate themselves — each runner decides which views to render.
+ * <p>A view is active only when both its feature flag and its {@code *View.enabled} config are
+ * set; the same predicate gates rendering (in every mode), the portal card, and publication.
  * Subject colours and icons are resolved from the timetable for every view, so an assignment
  * card or an evaluation card is the same colour as the lesson it belongs to.
  */
@@ -51,6 +52,10 @@ final class ViewPipeline {
     boolean assignmentsEnabled() { return features.isAssignments() && config.getAssignmentView().isEnabled(); }
     boolean evaluationsEnabled() { return features.isEvaluations() && config.getEvaluationView().isEnabled(); }
     boolean schoolLifeEnabled()  { return features.isSchoolLife()  && config.getSchoolLifeView().isEnabled(); }
+
+    boolean anyViewEnabled() {
+        return timetableEnabled() || assignmentsEnabled() || evaluationsEnabled() || schoolLifeEnabled();
+    }
 
     // -------------------------------------------------------------------------
     // Rendering
@@ -150,20 +155,17 @@ final class ViewPipeline {
     // GitHub Pages publication
     // -------------------------------------------------------------------------
 
-    /** Which view directories a publication mirrors. */
-    record Published(boolean timetable, boolean assignments, boolean evaluations, boolean schoolLife) {}
-
-    /** Mirrors the selected view directories into the GitHub Pages repo, if configured. */
-    void publish(Path dataDir, String portalHtml, Published views) {
+    /** Mirrors the enabled view directories into the GitHub Pages repo, if configured. */
+    void publish(Path dataDir, String portalHtml) {
         if (!config.getViewPublish().isEnabled()) return;
 
         Map<String, Path> viewDirs = new LinkedHashMap<>();
         Map<Path, Path> recursiveMirrors = new LinkedHashMap<>();
-        if (views.timetable()) {
+        if (timetableEnabled()) {
             viewDirs.put("timetable", Path.of(config.getTimetableView().getOutputDirectory())
                     .toAbsolutePath().normalize());
         }
-        if (views.assignments()) {
+        if (assignmentsEnabled()) {
             Path assignViewDir = Path.of(config.getAssignmentView().getOutputDirectory())
                     .toAbsolutePath().normalize();
             viewDirs.put("assignments", assignViewDir);
@@ -175,11 +177,11 @@ final class ViewPipeline {
                 recursiveMirrors.put(attachSource, destRelToRepo);
             }
         }
-        if (views.evaluations()) {
+        if (evaluationsEnabled()) {
             viewDirs.put("evaluations", Path.of(config.getEvaluationView().getOutputDirectory())
                     .toAbsolutePath().normalize());
         }
-        if (views.schoolLife()) {
+        if (schoolLifeEnabled()) {
             viewDirs.put("school-life", Path.of(config.getSchoolLifeView().getOutputDirectory())
                     .toAbsolutePath().normalize());
         }

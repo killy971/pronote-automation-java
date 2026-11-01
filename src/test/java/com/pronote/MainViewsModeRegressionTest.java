@@ -265,9 +265,9 @@ class MainViewsModeRegressionTest {
     }
 
     @Test
-    void featureDisabledButViewEnabled_rendersViewButPortalOmitsIt() {
-        // Pins the pre-refactor quirk: views mode gates rendering on *View.enabled alone,
-        // while the portal also requires the feature flag.
+    void featureDisabledButViewEnabled_skipsViewLikeThePortalDoes() {
+        // A view is active only when its feature flag AND *View.enabled are set — in views mode
+        // as in fetch and diff, and for rendering as for the portal card.
         env.featSchoolLife = false;
         env.writeConfig();
         env.seedLatest("timetable", List.of(
@@ -279,7 +279,7 @@ class MainViewsModeRegressionTest {
 
         env.runMain("--mode", "views");
 
-        assertTrue(Files.exists(env.schoolLifeViewDir.resolve("index.html")));
+        assertFalse(Files.exists(env.schoolLifeViewDir.resolve("index.html")));
         assertFalse(env.readPortal().contains("Vie scolaire"));
     }
 
@@ -296,6 +296,19 @@ class MainViewsModeRegressionTest {
         assertTrue(Files.exists(env.assignmentViewDir.resolve("index.html")));
         assertFalse(Files.exists(env.evaluationViewDir.resolve("index.html")));
         assertFalse(Files.exists(env.schoolLifeViewDir.resolve("index.html")));
+    }
+
+    @Test
+    void featureOverrideLimitsViewsModeToTheSelectedTypes() {
+        env.writeConfig();
+        env.seedLatest("assignments", List.of(
+                assignment("syn-a1", "SYN_MATHS", "Exercices page 12", day1, null)));
+
+        // No timetable snapshot: with the timetable feature off, views mode must not need one.
+        env.runMain("--mode", "views", "--features", "assignments");
+
+        assertTrue(Files.exists(env.assignmentViewDir.resolve("index.html")));
+        assertFalse(Files.exists(env.timetableViewDir.resolve("index.html")));
     }
 
     @Test

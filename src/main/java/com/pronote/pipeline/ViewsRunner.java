@@ -40,18 +40,13 @@ public final class ViewsRunner {
     }
 
     public void run() {
-        AppConfig.FeaturesConfig features = config.getFeatures();
-        boolean timetableViewEnabled   = config.getTimetableView().isEnabled();
-        boolean assignmentViewEnabled  = config.getAssignmentView().isEnabled();
-        boolean evaluationViewEnabled  = config.getEvaluationView().isEnabled();
-        boolean schoolLifeViewEnabled  = config.getSchoolLifeView().isEnabled();
-        if (!timetableViewEnabled && !assignmentViewEnabled
-                && !evaluationViewEnabled && !schoolLifeViewEnabled) {
+        ViewPipeline views = new ViewPipeline(config);
+        if (!views.anyViewEnabled()) {
             log.info("All views disabled in config — nothing to do.");
             return;
         }
 
-        ViewPipeline views = new ViewPipeline(config);
+        AppConfig.FeaturesConfig features = config.getFeatures();
         SnapshotStore snapshotStore = new SnapshotStore(dataDir, config.getData().getArchiveRetainDays());
         SubjectEnricher enricher = new SubjectEnricher(config.getSubjectEnrichment());
         ManualEntryLoader.ManualEntries manualEntries = ManualEntryLoader.load(
@@ -83,7 +78,7 @@ public final class ViewsRunner {
         // subjectEnrichment.rules was last edited.
         new AssignmentTeacherResolver(enricher).reEnrichFromConfig(assignmentsData, timetableData);
 
-        if (timetableViewEnabled) {
+        if (views.timetableEnabled()) {
             if (timetableSnap.isEmpty()) {
                 throw new RuntimeException("No timetable snapshot found at "
                         + dataDir.resolve("snapshots/timetable/latest.json")
@@ -93,7 +88,7 @@ public final class ViewsRunner {
             views.renderTimetable(timetableData, assignmentsData);
         }
 
-        if (assignmentViewEnabled) {
+        if (views.assignmentsEnabled()) {
             if (assignmentsSnap.isEmpty()) {
                 throw new RuntimeException("No assignments snapshot found at "
                         + dataDir.resolve("snapshots/assignments/latest.json")
@@ -103,7 +98,7 @@ public final class ViewsRunner {
             views.renderAssignments(assignmentsData, timetableData);
         }
 
-        if (evaluationViewEnabled) {
+        if (views.evaluationsEnabled()) {
             // Past competence results only — never manual entries. See the terminology section
             // of CLAUDE.md: manual "evaluations" are upcoming timetable events.
             Optional<List<CompetenceEvaluation>> evaluationsSnap =
@@ -118,7 +113,7 @@ public final class ViewsRunner {
             }
         }
 
-        if (schoolLifeViewEnabled) {
+        if (views.schoolLifeEnabled()) {
             Optional<List<SchoolLifeEvent>> schoolLife =
                     snapshotStore.loadLatest("school-life", new TypeReference<>() {});
             if (schoolLife.isEmpty()) {
@@ -132,7 +127,6 @@ public final class ViewsRunner {
         String portalHtml = views.writePortalIndex();
         log.info("Views regenerated successfully.");
 
-        views.publish(dataDir, portalHtml, new ViewPipeline.Published(
-                timetableViewEnabled, assignmentViewEnabled, evaluationViewEnabled, schoolLifeViewEnabled));
+        views.publish(dataDir, portalHtml);
     }
 }
