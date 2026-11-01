@@ -98,6 +98,29 @@ class ConfigLoaderTest {
     }
 
     @Test
+    void load_withoutCredentialRequirement_acceptsMissingPronoteSection(@TempDir Path dir) throws IOException {
+        Path file = writeConfig(dir, """
+                data:
+                  directory: ./data
+                """);
+        AppConfig cfg = ConfigLoader.load(file, false);
+        assertNull(cfg.getPronote().getBaseUrl());
+        assertEquals("./data", cfg.getData().getDirectory());
+    }
+
+    @Test
+    void load_withoutCredentialRequirement_stillValidatesNotificationSections(@TempDir Path dir) throws IOException {
+        Path file = writeConfig(dir, """
+                notifications:
+                  ntfy:
+                    enabled: true
+                """);
+        ConfigLoader.ConfigException ex = assertThrows(
+                ConfigLoader.ConfigException.class, () -> ConfigLoader.load(file, false));
+        assertTrue(ex.getMessage().contains("notifications.ntfy.topic"));
+    }
+
+    @Test
     void load_ntfyEnabledWithoutTopic_failsValidation(@TempDir Path dir) throws IOException {
         Path file = writeConfig(dir, MINIMAL_YAML + """
                 notifications:

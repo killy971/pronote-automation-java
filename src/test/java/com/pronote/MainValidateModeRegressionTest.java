@@ -131,6 +131,31 @@ class MainValidateModeRegressionTest {
     }
 
     @Test
+    void offlineModesDoNotRequirePronoteCredentials() {
+        env.includeCredentials = false;
+        env.writeConfig();
+        env.seedLatest("timetable", List.of(
+                lesson("syn-t1", "SYN_MATHS", "DURAND A.", "B12", day1.atTime(10, 0), day1.atTime(11, 0))));
+        env.seedLatest("assignments", List.of());
+
+        assertDoesNotThrow(() -> env.runMain("--mode", "validate"));
+        assertDoesNotThrow(() -> env.runMain("--mode", "views"));
+        assertDoesNotThrow(() -> env.runMain("--mode", "diff", "--dry-run"));
+    }
+
+    @Test
+    void fetchModeStillRequiresPronoteCredentials() {
+        // Fails in config validation — before any lockout, session or network step.
+        env.includeCredentials = false;
+        env.writeConfig();
+
+        ConfigLoader.ConfigException ex = assertThrows(ConfigLoader.ConfigException.class,
+                () -> env.runMain("--mode", "fetch"));
+        assertTrue(ex.getMessage().contains("pronote.baseUrl"), ex.getMessage());
+        assertFalse(Files.exists(env.dataDir.resolve("lockout.json")));
+    }
+
+    @Test
     void unknownMode_failsFast() {
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> env.runMain("--mode", "bogus"));

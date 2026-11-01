@@ -65,6 +65,7 @@ final class PipelineTestHarness {
     final Path schoolLifeViewDir;
 
     // Config knobs — mutate before calling writeConfig().
+    boolean includeCredentials = true;
     boolean featAssignments = true;
     boolean featTimetable = true;
     boolean featGrades = false;
@@ -116,11 +117,13 @@ final class PipelineTestHarness {
 
     void writeConfig() {
         StringBuilder yaml = new StringBuilder();
-        yaml.append("pronote:\n")
-            .append("  baseUrl: \"https://example.invalid/pronote/\"\n")
-            .append("  username: \"syn-user\"\n")
-            .append("  password: \"syn-pass\"\n")
-            .append("  weeksAhead: ").append(weeksAhead).append("\n")
+        yaml.append("pronote:\n");
+        if (includeCredentials) {
+            yaml.append("  baseUrl: \"https://example.invalid/pronote/\"\n")
+                .append("  username: \"syn-user\"\n")
+                .append("  password: \"syn-pass\"\n");
+        }
+        yaml.append("  weeksAhead: ").append(weeksAhead).append("\n")
             .append("data:\n")
             .append("  directory: \"").append(dataDir).append("\"\n")
             .append("  archiveRetainDays: 30\n")

@@ -37,7 +37,8 @@ public class Main {
     /** The CLI pipeline without {@code System.exit} — package-private for the end-to-end tests. */
     static void run(String[] args) {
         CliOptions opts = CliOptions.parse(args);
-        AppConfig config = loadConfig(opts);
+        // Only fetch talks to Pronote; the offline modes run without credentials.
+        AppConfig config = loadConfig(opts, "fetch".equals(opts.mode()));
         Path dataDir = Path.of(config.getData().getDirectory());
         boolean dryRun = opts.dryRun();
         if (dryRun) log.info("--dry-run active: notifications will be previewed in the log, not sent.");
@@ -59,13 +60,13 @@ public class Main {
      */
     static void runFetchWith(String[] args, FetchSource source, NotificationService errorNotifier) {
         CliOptions opts = CliOptions.parse(args);
-        AppConfig config = loadConfig(opts);
+        AppConfig config = loadConfig(opts, true);
         new FetchRunner(config, Path.of(config.getData().getDirectory()), opts.dryRun())
                 .runWith(source, errorNotifier);
     }
 
-    private static AppConfig loadConfig(CliOptions opts) {
-        AppConfig config = ConfigLoader.load(opts.configPath());
+    private static AppConfig loadConfig(CliOptions opts, boolean requireCredentials) {
+        AppConfig config = ConfigLoader.load(opts.configPath(), requireCredentials);
         opts.featureOverride().ifPresent(enabled -> {
             CliOptions.applyFeatureOverride(config.getFeatures(), enabled);
             log.info("Feature override applied via --features flag: {}", enabled);

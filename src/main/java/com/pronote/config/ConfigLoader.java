@@ -24,13 +24,24 @@ public class ConfigLoader {
     private ConfigLoader() {}
 
     /**
+     * Loads configuration with full validation, including Pronote credentials.
+     * Equivalent to {@code load(configPath, true)}.
+     */
+    public static AppConfig load(Path configPath) {
+        return load(configPath, true);
+    }
+
+    /**
      * Loads configuration from the given YAML file path.
      *
-     * @param configPath path to config.yaml
+     * @param configPath         path to config.yaml
+     * @param requireCredentials whether {@code pronote.baseUrl/username/password} must be
+     *                           present — required for the online {@code fetch} mode, not
+     *                           for the offline modes (views, diff, validate)
      * @return validated AppConfig
      * @throws ConfigException if the file cannot be read or required fields are missing
      */
-    public static AppConfig load(Path configPath) {
+    public static AppConfig load(Path configPath, boolean requireCredentials) {
         log.info("Loading configuration from {}", configPath.toAbsolutePath());
 
         if (!Files.exists(configPath)) {
@@ -58,24 +69,26 @@ public class ConfigLoader {
             config.getPronote().setPassword(envPassword);
         }
 
-        validate(config);
+        validate(config, requireCredentials);
         log.info("Configuration loaded successfully (baseUrl={}, loginMode={})",
                 config.getPronote().getBaseUrl(), config.getPronote().getLoginMode());
         return config;
     }
 
-    private static void validate(AppConfig config) {
+    private static void validate(AppConfig config, boolean requireCredentials) {
         List<String> errors = new ArrayList<>();
 
-        // Pronote section
-        if (isBlank(config.getPronote().getBaseUrl())) {
-            errors.add("pronote.baseUrl is required");
-        }
-        if (isBlank(config.getPronote().getUsername())) {
-            errors.add("pronote.username is required");
-        }
-        if (isBlank(config.getPronote().getPassword())) {
-            errors.add("pronote.password is required (or set PRONOTE_PASSWORD env var)");
+        // Pronote section — only the online fetch mode needs to authenticate
+        if (requireCredentials) {
+            if (isBlank(config.getPronote().getBaseUrl())) {
+                errors.add("pronote.baseUrl is required");
+            }
+            if (isBlank(config.getPronote().getUsername())) {
+                errors.add("pronote.username is required");
+            }
+            if (isBlank(config.getPronote().getPassword())) {
+                errors.add("pronote.password is required (or set PRONOTE_PASSWORD env var)");
+            }
         }
 
         // Notification sections
