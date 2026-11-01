@@ -6,6 +6,7 @@ import com.pronote.domain.TimetableEntry;
 import com.pronote.domain.TimetableSlots;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -116,6 +117,154 @@ public class TimetableHtmlGenerator {
           .append("</html>\n");
 
         return sb.toString();
+    }
+
+    // -------------------------------------------------------------------------
+    // Week index page and "no upcoming day" page
+    // -------------------------------------------------------------------------
+
+    private static final DateTimeFormatter DAY_OF_WEEK_FMT =
+        DateTimeFormatter.ofPattern("EEEE", Locale.FRENCH);
+    private static final DateTimeFormatter CARD_DATE_FMT =
+        DateTimeFormatter.ofPattern("d MMMM", Locale.FRENCH);
+
+    /**
+     * Generates the week overview page: one card per date linking to its day page,
+     * annotated with lesson count, time range, assignment and eval counts.
+     */
+    public String generateIndex(List<LocalDate> dates, List<TimetableEntry> allEntries,
+                                List<Assignment> allAssignments) {
+        String generatedAt = HtmlText.generatedAt();
+
+        StringBuilder cards = new StringBuilder();
+        for (LocalDate date : dates) {
+            List<TimetableEntry> dayEntries = entriesForDate(allEntries, date);
+            if (dayEntries.isEmpty()) continue;
+            List<Assignment> dayAssigns = allAssignments.stream()
+                .filter(a -> date.equals(a.getDueDate()) && !AssignmentHtmlGenerator.isBlankAssignment(a))
+                .toList();
+            long totalAssignCount = dayAssigns.size();
+            long doneAssignCount  = dayAssigns.stream().filter(Assignment::isDone).count();
+            cards.append(renderDayCard(date, dayEntries, totalAssignCount, doneAssignCount));
+        }
+
+        return "<!DOCTYPE html>\n"
+            + "<html lang=\"fr\">\n"
+            + "<head>\n"
+            + "  <meta charset=\"UTF-8\">\n"
+            + "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+            + "  <title>Emploi du temps</title>\n"
+            + "  <style>" + CSS + "</style>\n"
+            + "</head>\n"
+            + "<body>\n"
+            + "  <div class=\"page\">\n"
+            + "    <nav class=\"nav\"><a class=\"nav__back\" href=\"../index.html\">←\u00a0Pronote</a></nav>\n"
+            + "    <header class=\"index-header\">\n"
+            + "      <h1 class=\"index-header__title\">Emploi du temps</h1>\n"
+            + "      <p class=\"index-header__subtitle\">Mis à jour le " + generatedAt + "</p>\n"
+            + "    </header>\n"
+            + "    <nav class=\"days-grid\" aria-label=\"Jours de la semaine\">\n"
+            + cards
+            + "    </nav>\n"
+            + "  </div>\n"
+            + "</body>\n"
+            + "</html>\n";
+    }
+
+    private String renderDayCard(LocalDate date, List<TimetableEntry> entries,
+                                  long totalAssignCount, long doneAssignCount) {
+        String dow      = capitalize(date.format(DAY_OF_WEEK_FMT));
+        String shortDt  = capitalize(date.format(CARD_DATE_FMT));
+        String href     = date + ".html";
+        String datetime = date.toString();
+
+        String metaLine;
+        String alertLine = "";
+
+        if (entries.isEmpty()) {
+            metaLine = "Pas de cours";
+        } else {
+            List<TimetableEntry> sorted = collapseSlots(entries).stream()
+                .map(MergedEntry::entry)
+                .sorted(Comparator.comparing(TimetableEntry::getStartTime))
+                .toList();
+
+            String firstTime = formatHour(sorted.get(0).getStartTime());
+            String lastTime  = formatHour(sorted.get(sorted.size() - 1).getEndTime());
+            long count       = sorted.stream()
+                .filter(e -> e.getStatus() != EntryStatus.CANCELLED)
+                .count();
+            long cancelled   = sorted.stream()
+                .filter(e -> e.getStatus() == EntryStatus.CANCELLED)
+                .count();
+
+            metaLine = count + "\u00a0cours\u00a0·\u00a0" + firstTime + "–" + lastTime;
+            if (cancelled > 0) {
+                alertLine = "\n      <div class=\"day-card__alert\">"
+                    + "⚠️\u00a0" + cancelled + "\u00a0annulation" + (cancelled > 1 ? "s" : "")
+                    + "</div>";
+            }
+        }
+
+        if (totalAssignCount > 0) {
+            boolean allDone = doneAssignCount == totalAssignCount;
+            if (allDone) {
+                String label = totalAssignCount + "\u00a0devoir" + (totalAssignCount > 1 ? "s" : "");
+                metaLine += "\u00a0·\u00a0<span class=\"day-card__assign-done\">" + label + "</span>";
+            } else {
+                long undone = totalAssignCount - doneAssignCount;
+                metaLine += "\u00a0·\u00a0" + undone + "\u00a0devoir" + (undone > 1 ? "s" : "");
+            }
+        }
+
+        long evalCount = entries.stream().filter(TimetableEntry::isEval).count();
+        if (evalCount > 0) {
+            metaLine += "\u00a0·\u00a0<span class=\"day-card__eval-note\">"
+                + evalCount + "\u00a0éval" + (evalCount > 1 ? "s" : "") + "."
+                + "</span>";
+        }
+
+        String emptyClass = entries.isEmpty() ? " day-card--empty" : "";
+
+        return "      <a class=\"day-card" + emptyClass + "\" href=\"" + href + "\">\n"
+             + "        <div class=\"day-card__dow\">" + esc(dow) + "</div>\n"
+             + "        <div class=\"day-card__date\"><time datetime=\"" + datetime + "\">"
+             + esc(shortDt) + "</time></div>\n"
+             + "        <div class=\"day-card__meta\">" + metaLine + "</div>"
+             + alertLine + "\n"
+             + "      </a>\n";
+    }
+
+    /** Generates the fallback {@code current.html} page when the snapshot has no upcoming day. */
+    public String generateNoUpcomingPage() {
+        return "<!DOCTYPE html>\n"
+            + "<html lang=\"fr\">\n"
+            + "<head>\n"
+            + "  <meta charset=\"UTF-8\">\n"
+            + "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
+            + "  <title>Emploi du temps</title>\n"
+            + "  <style>" + CSS + "</style>\n"
+            + "</head>\n"
+            + "<body>\n"
+            + "  <div class=\"page\">\n"
+            + "    <nav class=\"nav\"><a class=\"nav__back\" href=\"index.html\">←\u00a0Semaine</a></nav>\n"
+            + "    <p class=\"empty-day\">Aucun cours à venir dans le calendrier chargé.</p>\n"
+            + "  </div>\n"
+            + "</body>\n"
+            + "</html>\n";
+    }
+
+    /** Returns the entries starting on the given date, sorted by start time. */
+    public static List<TimetableEntry> entriesForDate(List<TimetableEntry> all, LocalDate date) {
+        return all.stream()
+            .filter(e -> e.getStartTime() != null && e.getStartTime().toLocalDate().equals(date))
+            .sorted(Comparator.comparing(TimetableEntry::getStartTime))
+            .toList();
+    }
+
+    private static String formatHour(LocalDateTime dt) {
+        if (dt == null) return "?";
+        return dt.getHour() + "h" + String.format("%02d", dt.getMinute());
     }
 
     // -------------------------------------------------------------------------
@@ -458,16 +607,11 @@ public class TimetableHtmlGenerator {
     }
 
     private static String capitalize(String s) {
-        if (s == null || s.isEmpty()) return s;
-        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+        return HtmlText.capitalize(s);
     }
 
     static String esc(String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;");
+        return HtmlText.escape(s);
     }
 
     // -------------------------------------------------------------------------

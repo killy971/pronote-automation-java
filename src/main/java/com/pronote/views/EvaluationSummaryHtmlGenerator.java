@@ -31,8 +31,6 @@ public class EvaluationSummaryHtmlGenerator {
 
     private static final DateTimeFormatter SHORT_DATE_FMT =
         DateTimeFormatter.ofPattern("d MMM", Locale.FRENCH);
-    private static final DateTimeFormatter DATETIME_FMT =
-        DateTimeFormatter.ofPattern("d MMMM yyyy '\u00e0' HH'h'mm", Locale.FRENCH);
     private static final Pattern DIGIT_PATTERN = Pattern.compile("\\d+");
 
     private final EvaluationHtmlGenerator helper = new EvaluationHtmlGenerator();
@@ -94,7 +92,7 @@ public class EvaluationSummaryHtmlGenerator {
             content = sb.toString();
         }
 
-        String generatedAt = capitalize(LocalDateTime.now().format(DATETIME_FMT));
+        String generatedAt = HtmlText.generatedAt();
 
         return "<!DOCTYPE html>\n"
             + "<html lang=\"fr\">\n"
@@ -324,8 +322,7 @@ public class EvaluationSummaryHtmlGenerator {
     // -------------------------------------------------------------------------
 
     private static String capitalize(String s) {
-        if (s == null || s.isEmpty()) return s;
-        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+        return HtmlText.capitalize(s);
     }
 
     // -------------------------------------------------------------------------

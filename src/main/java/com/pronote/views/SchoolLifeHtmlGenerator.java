@@ -30,8 +30,6 @@ public class SchoolLifeHtmlGenerator {
 
     private static final DateTimeFormatter EVENT_DATE_FMT =
         DateTimeFormatter.ofPattern("EEE d MMM", Locale.FRENCH);
-    private static final DateTimeFormatter DATETIME_FMT =
-        DateTimeFormatter.ofPattern("d MMMM yyyy '\u00e0' HH'h'mm", Locale.FRENCH);
 
     // -------------------------------------------------------------------------
     // Public API
@@ -56,7 +54,7 @@ public class SchoolLifeHtmlGenerator {
             ? "      <p class=\"empty-state\">Aucun \u00e9v\u00e9nement \u00e0 afficher.</p>\n"
             : renderList(sorted);
 
-        String generatedAt = capitalize(LocalDateTime.now().format(DATETIME_FMT));
+        String generatedAt = HtmlText.generatedAt();
 
         return "<!DOCTYPE html>\n"
             + "<html lang=\"fr\">\n"
@@ -298,16 +296,11 @@ public class SchoolLifeHtmlGenerator {
     // -------------------------------------------------------------------------
 
     private static String capitalize(String s) {
-        if (s == null || s.isEmpty()) return s;
-        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+        return HtmlText.capitalize(s);
     }
 
     static String esc(String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;");
+        return HtmlText.escape(s);
     }
 
     // -------------------------------------------------------------------------

@@ -14,8 +14,6 @@ import java.util.Locale;
  */
 public class PortalIndexHtmlGenerator {
 
-    private static final DateTimeFormatter DATETIME_FMT =
-        DateTimeFormatter.ofPattern("d MMMM yyyy '\u00e0' HH'h'mm", Locale.FRENCH);
 
     /**
      * Descriptor for one section card in the portal index.
@@ -38,7 +36,7 @@ public class PortalIndexHtmlGenerator {
      * @return a complete, self-contained HTML5 document
      */
     public String generate(List<Section> sections) {
-        String generatedAt = capitalize(LocalDateTime.now().format(DATETIME_FMT));
+        String generatedAt = HtmlText.generatedAt();
 
         StringBuilder cards = new StringBuilder();
         for (Section s : sections) {
@@ -86,16 +84,11 @@ public class PortalIndexHtmlGenerator {
     // -------------------------------------------------------------------------
 
     private static String capitalize(String s) {
-        if (s == null || s.isEmpty()) return s;
-        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+        return HtmlText.capitalize(s);
     }
 
     private static String esc(String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;");
+        return HtmlText.escape(s);
     }
 
     // -------------------------------------------------------------------------

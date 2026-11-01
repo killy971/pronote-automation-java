@@ -2,6 +2,9 @@ package com.pronote.views;
 
 import org.apache.commons.text.StringEscapeUtils;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,6 +33,20 @@ final class HtmlText {
 
     /** Sentence-final punctuation stripped from the trailing edge of a matched URL. */
     private static final String TRAILING_STRIPS = ".,;:!?";
+
+    private static final DateTimeFormatter GENERATED_AT_FMT =
+        DateTimeFormatter.ofPattern("d MMMM yyyy 'à' HH'h'mm", Locale.FRENCH);
+
+    /** Capitalises the first character — French date formatting yields lowercase day/month names. */
+    static String capitalize(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    /** Formatted "now" for the "Mis à jour le …" line in every generated page header. */
+    static String generatedAt() {
+        return capitalize(LocalDateTime.now().format(GENERATED_AT_FMT));
+    }
 
     /** HTML-escape ampersands, angle brackets, and double quotes. Null becomes empty string. */
     static String escape(String s) {

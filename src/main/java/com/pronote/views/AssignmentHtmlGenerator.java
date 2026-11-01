@@ -65,8 +65,6 @@ public class AssignmentHtmlGenerator {
         DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.FRENCH);
     private static final DateTimeFormatter DATE_ATTR_FMT =
         DateTimeFormatter.ofPattern("yyyy-MM-dd");
-    private static final DateTimeFormatter DATETIME_FMT =
-        DateTimeFormatter.ofPattern("d MMMM yyyy '\u00e0' HH'h'mm", Locale.FRENCH);
     private static final DateTimeFormatter WEEK_RANGE_FMT =
         DateTimeFormatter.ofPattern("d MMMM", Locale.FRENCH);
 
@@ -121,7 +119,7 @@ public class AssignmentHtmlGenerator {
             ? "      <p class=\"empty-state\">Aucun devoir \u00e0 venir.</p>\n"
             : renderAssignments(upcoming, evalsByDate, outputDir);
 
-        String generatedAt = capitalize(LocalDateTime.now().format(DATETIME_FMT));
+        String generatedAt = HtmlText.generatedAt();
 
         return "<!DOCTYPE html>\n"
             + "<html lang=\"fr\">\n"
@@ -366,16 +364,11 @@ public class AssignmentHtmlGenerator {
     }
 
     private static String capitalize(String s) {
-        if (s == null || s.isEmpty()) return s;
-        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+        return HtmlText.capitalize(s);
     }
 
     static String esc(String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;");
+        return HtmlText.escape(s);
     }
 
     // -------------------------------------------------------------------------
