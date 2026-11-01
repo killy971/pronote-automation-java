@@ -18,6 +18,8 @@ import com.pronote.domain.SchoolLifeEvent;
 import com.pronote.domain.TimetableEntry;
 import com.pronote.notification.*;
 import com.pronote.persistence.AssignmentDiffFilter;
+import com.pronote.pipeline.FetchSource;
+import com.pronote.pipeline.PronoteFetchSource;
 import com.pronote.persistence.DiffEngine;
 import com.pronote.persistence.DiffReporter;
 import com.pronote.persistence.DiffResult;
@@ -26,14 +28,8 @@ import com.pronote.persistence.TimetableDiffFilter;
 import com.pronote.safety.EmptyFetchGuard;
 import com.pronote.safety.LockoutGuard;
 import com.pronote.safety.RateLimiter;
-import com.pronote.scraper.AssignmentScraper;
 import com.pronote.scraper.AssignmentTeacherResolver;
-import com.pronote.scraper.AttachmentDownloader;
-import com.pronote.scraper.EvaluationScraper;
-import com.pronote.scraper.GradeScraper;
 import com.pronote.scraper.ManualAttachmentStager;
-import com.pronote.scraper.SchoolLifeScraper;
-import com.pronote.scraper.TimetableScraper;
 import com.pronote.views.AssignmentViewRenderer;
 import com.pronote.views.EvaluationViewRenderer;
 import com.pronote.views.GitPublisher;
@@ -94,14 +90,11 @@ public class Main {
         }
     }
 
-    private static void run(String[] args) {
+    /** The CLI pipeline without {@code System.exit} — package-private for the end-to-end tests. */
+    static void run(String[] args) {
         // ---- 1. Load configuration ----------------------------------------
         CliOptions opts = CliOptions.parse(args);
-        AppConfig config = ConfigLoader.load(opts.configPath());
-        opts.featureOverride().ifPresent(enabled -> {
-            CliOptions.applyFeatureOverride(config.getFeatures(), enabled);
-            log.info("Feature override applied via --features flag: {}", enabled);
-        });
+        AppConfig config = loadConfig(opts);
         Path dataDir = Path.of(config.getData().getDirectory());
         boolean dryRun = opts.dryRun();
         if (dryRun) log.info("--dry-run active: notifications will be previewed in the log, not sent.");
@@ -114,6 +107,26 @@ public class Main {
             default -> throw new IllegalArgumentException(
                     "Unknown --mode '" + opts.mode() + "'. Valid modes: fetch, views, diff, validate");
         }
+    }
+
+    /**
+     * Test entry point for {@code --mode fetch}: same CLI and config handling as {@link #run},
+     * but the post-login pipeline reads from {@code source} instead of a live Pronote session.
+     * Lockout and session handling are skipped — they precede the source.
+     */
+    static void runFetchWith(String[] args, FetchSource source, NotificationService errorNotifier) {
+        CliOptions opts = CliOptions.parse(args);
+        AppConfig config = loadConfig(opts);
+        processFetch(config, Path.of(config.getData().getDirectory()), opts.dryRun(), errorNotifier, source);
+    }
+
+    private static AppConfig loadConfig(CliOptions opts) {
+        AppConfig config = ConfigLoader.load(opts.configPath());
+        opts.featureOverride().ifPresent(enabled -> {
+            CliOptions.applyFeatureOverride(config.getFeatures(), enabled);
+            log.info("Feature override applied via --features flag: {}", enabled);
+        });
+        return config;
     }
 
     // -------------------------------------------------------------------------
@@ -154,28 +167,33 @@ public class Main {
             throw e;
         }
 
+        SubjectEnricher subjectEnricher = new SubjectEnricher(config.getSubjectEnrichment());
+        FetchSource source = new PronoteFetchSource(config, session, httpClient, sessionStore, subjectEnricher);
+        processFetch(config, dataDir, dryRun, errorNotifier, source);
+    }
+
+    private static void processFetch(AppConfig config, Path dataDir, boolean dryRun,
+                                     NotificationService errorNotifier, FetchSource source) {
         AppConfig.FeaturesConfig features = config.getFeatures();
         SubjectEnricher subjectEnricher = new SubjectEnricher(config.getSubjectEnrichment());
 
         // ---- 4. Fetch data (only for enabled types) -----------------------
-        AssignmentScraper assignmentScraper = new AssignmentScraper(subjectEnricher);
         List<Assignment> assignments = List.of();
         if (features.isAssignments()) {
             log.info("Fetching assignments...");
             try {
-                assignments = assignmentScraper.fetch(session, httpClient, config);
+                assignments = source.fetchAssignments();
             } catch (RuntimeException e) {
                 sendErrorAlert(errorNotifier, "récupération des devoirs", e.getMessage());
                 throw e;
             }
         }
 
-        TimetableScraper timetableScraper = new TimetableScraper(subjectEnricher);
         List<TimetableEntry> timetable = List.of();
         if (features.isTimetable()) {
             log.info("Fetching timetable...");
             try {
-                timetable = timetableScraper.fetch(session, httpClient, config);
+                timetable = source.fetchTimetable();
             } catch (RuntimeException e) {
                 sendErrorAlert(errorNotifier, "emploi du temps", e.getMessage());
                 throw e;
@@ -190,12 +208,11 @@ public class Main {
         AssignmentTeacherResolver teacherResolver = new AssignmentTeacherResolver(subjectEnricher);
         teacherResolver.reEnrichAssignmentsWithTeacher(assignments, timetable);
 
-        GradeScraper gradeScraper = new GradeScraper(subjectEnricher);
         List<Grade> grades = List.of();
         if (features.isGrades()) {
             log.info("Fetching grades...");
             try {
-                grades = gradeScraper.fetch(session, httpClient, session.getPeriods());
+                grades = source.fetchGrades();
             } catch (RuntimeException e) {
                 sendErrorAlert(errorNotifier, "notes", e.getMessage());
                 throw e;
@@ -204,12 +221,11 @@ public class Main {
             log.debug("Grades feature disabled — skipping.");
         }
 
-        EvaluationScraper evaluationScraper = new EvaluationScraper(subjectEnricher);
         List<CompetenceEvaluation> evaluations = List.of();
         if (features.isEvaluations()) {
             log.info("Fetching competence evaluations...");
             try {
-                evaluations = evaluationScraper.fetch(session, httpClient, session.getPeriods());
+                evaluations = source.fetchEvaluations();
             } catch (RuntimeException e) {
                 sendErrorAlert(errorNotifier, "évaluations", e.getMessage());
                 throw e;
@@ -218,12 +234,11 @@ public class Main {
             log.debug("Evaluations feature disabled — skipping.");
         }
 
-        SchoolLifeScraper schoolLifeScraper = new SchoolLifeScraper(subjectEnricher);
         List<SchoolLifeEvent> schoolLife = List.of();
         if (features.isSchoolLife()) {
             log.info("Fetching vie scolaire events...");
             try {
-                schoolLife = schoolLifeScraper.fetch(session, httpClient, session.getPeriods());
+                schoolLife = source.fetchSchoolLife();
             } catch (RuntimeException e) {
                 sendErrorAlert(errorNotifier, "vie scolaire", e.getMessage());
                 throw e;
@@ -341,15 +356,14 @@ public class Main {
         // ---- 7. Download assignment attachments ----------------------------
         if (features.isAssignments()) {
             Path attachmentsDir = dataDir.resolve("snapshots").resolve("assignments").resolve("attachments");
-            AttachmentDownloader attachmentDownloader = new AttachmentDownloader(httpClient, session, attachmentsDir);
-            attachmentDownloader.processAttachments(assignments);
+            source.downloadAttachments(assignments, attachmentsDir);
         }
 
         // ---- 7b. Persist the session now that the last Pronote request is done ----
         // Saving again here stamps lastUsedAt and captures the order counter the run advanced.
         // Without it the stored counter stays at its post-login value, which the server has
         // already consumed — so even a back-to-back run could never reuse the session.
-        sessionStore.save(session);
+        source.saveSession();
 
         // ---- 8. Write persistent diff report (always) ---------------------
         DiffReporter reporter = new DiffReporter(dataDir);

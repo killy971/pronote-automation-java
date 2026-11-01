@@ -49,6 +49,17 @@ dependencies {
 
 test {
     useJUnitPlatform()
+    // Run tests from an isolated working directory so CWD-relative outputs
+    // (./data/views/index.html written by Main, ./data/logs from logback)
+    // never touch the project's real ./data directory.
+    def testWorkDir = layout.buildDirectory.dir('test-workdir').get().asFile
+    doFirst { testWorkDir.mkdirs() }
+    workingDir = testWorkDir
+    // Golden dump of every pipeline regression test's outputs, for before/after refactor
+    // comparison: ./gradlew cleanTest test -PgoldenDir=/abs/dir (see PipelineTestHarness).
+    if (project.hasProperty('goldenDir')) {
+        systemProperty 'pipeline.golden.dir', project.property('goldenDir')
+    }
     testLogging {
         events "passed", "skipped", "failed"
         showStandardStreams false
