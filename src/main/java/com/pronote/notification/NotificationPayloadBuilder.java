@@ -7,6 +7,7 @@ import com.pronote.domain.EntryStatus;
 import com.pronote.domain.Grade;
 import com.pronote.domain.SchoolLifeEvent;
 import com.pronote.domain.TimetableEntry;
+import com.pronote.persistence.DiffBundle;
 import com.pronote.persistence.DiffResult;
 import com.pronote.persistence.FieldChange;
 
@@ -45,6 +46,12 @@ public final class NotificationPayloadBuilder {
                                             DiffResult<SchoolLifeEvent> schoolLifeDiff) {
         return build(assignmentDiff, timetableDiff, gradeDiff, evaluationDiff, schoolLifeDiff,
                 List.of());
+    }
+
+    /** The bundle form of {@link #build(DiffResult, DiffResult, DiffResult, DiffResult, DiffResult, List)}. */
+    public static NotificationPayload build(DiffBundle diffs, List<TimetableEntry> currentTimetable) {
+        return build(diffs.assignments(), diffs.timetable(), diffs.grades(), diffs.evaluations(),
+                diffs.schoolLife(), currentTimetable);
     }
 
     /**

@@ -133,6 +133,29 @@ class MainFetchModeRegressionTest {
     }
 
     @Test
+    void lateCancelledGhostOfARoomChange_isAnnouncedAsARoomChange() {
+        // The relocated lesson was already fetched last run; this run only adds the cancelled
+        // ghost of the original room. Telling the two apart needs the whole current timetable,
+        // not just the diff.
+        env.writeConfig();
+        TimetableEntry moved = lesson("syn-t1b", "SYN_MATHS", "DURAND A.", "B14",
+                day1.atTime(10, 0), day1.atTime(11, 0));
+        pronote.timetable.add(moved);
+        env.runFetch(pronote);
+
+        TimetableEntry ghost = lesson("syn-t1", "SYN_MATHS", "DURAND A.", "B12",
+                day1.atTime(10, 0), day1.atTime(11, 0));
+        ghost.setStatus(EntryStatus.CANCELLED);
+        ghost.setStatusLabel("Changement de salle");
+        pronote.timetable.add(ghost);
+
+        fetchDryRun();
+
+        assertTrue(extra.contains("salle B12 → B14"), extra);
+        assertFalse(extra.contains("Priority: HIGH"), "a room change is not a lost lesson");
+    }
+
+    @Test
     void manualEntriesAreMergedStagedAndPersisted() throws Exception {
         env.enrichmentRules.add(new String[]{"SYN_HG", "DURAND A.", "Histoire SYN"});
         env.writeConfig();

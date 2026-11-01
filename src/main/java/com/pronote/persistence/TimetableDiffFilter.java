@@ -5,8 +5,10 @@ import com.pronote.domain.TimetableEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.TemporalAdjusters;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -88,6 +90,26 @@ public class TimetableDiffFilter {
         }
 
         return new DiffResult<>(added, removed, modified);
+    }
+
+    /**
+     * {@link #filter} against the current retrieval window: the furthest week is the Monday of
+     * the latest lesson in {@code current} (this week when it is empty), and "now" is the clock.
+     *
+     * <p>The furthest week is read from the data, not computed from {@code weeksAhead}: Pronote
+     * may return fewer weeks than asked (end of term), and on a Sunday the formula lands a week
+     * off from the last week actually returned.
+     */
+    public DiffResult<TimetableEntry> filterForWindow(DiffResult<TimetableEntry> raw,
+                                                      List<TimetableEntry> previousSnapshot,
+                                                      List<TimetableEntry> current) {
+        LocalDate furthestWeekStart = current.stream()
+                .filter(e -> e.getStartTime() != null)
+                .map(e -> e.getStartTime().toLocalDate()
+                        .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)))
+                .max(LocalDate::compareTo)
+                .orElse(LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)));
+        return filter(raw, previousSnapshot, furthestWeekStart, LocalDateTime.now());
     }
 
     /**

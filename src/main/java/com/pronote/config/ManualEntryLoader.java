@@ -56,6 +56,11 @@ public class ManualEntryLoader {
     /** Prefix on every manual entry ID, keeping them distinct from Pronote's own IDs. */
     public static final String ID_PREFIX = "manual:";
 
+    /** True for an ID produced by this loader — i.e. an entry that comes from the YAML, not Pronote. */
+    public static boolean isManualId(String id) {
+        return id != null && id.startsWith(ID_PREFIX);
+    }
+
     private ManualEntryLoader() {}
 
     /**

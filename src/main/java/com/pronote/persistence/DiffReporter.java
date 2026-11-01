@@ -58,6 +58,12 @@ public class DiffReporter {
      * @param correspondenceDiff diff result for correspondence messages
      * @param isFirstRun       true when no previous snapshot existed — baseline establishment
      */
+    /** {@link #record(DiffResult, DiffResult, DiffResult, DiffResult, DiffResult, boolean)} for a bundle. */
+    public void record(DiffBundle diffs, boolean isFirstRun) {
+        record(diffs.assignments(), diffs.timetable(), diffs.grades(), diffs.evaluations(),
+                diffs.schoolLife(), isFirstRun);
+    }
+
     public void record(DiffResult<Assignment> assignmentDiff,
                        DiffResult<TimetableEntry> timetableDiff,
                        DiffResult<Grade> gradeDiff,

@@ -13,6 +13,11 @@ public record DiffResult<T extends Identifiable>(
         List<T> removed,
         Map<T, List<FieldChange>> modified) {
 
+    /** The diff of a type with nothing to compare against (first run, or newly enabled type). */
+    public static <T extends Identifiable> DiffResult<T> empty() {
+        return new DiffResult<>(List.of(), List.of(), Map.of());
+    }
+
     /** Returns true if there are no differences at all. */
     public boolean isEmpty() {
         return added.isEmpty() && removed.isEmpty() && modified.isEmpty();
