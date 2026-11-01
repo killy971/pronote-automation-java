@@ -95,4 +95,17 @@ class NotificationFormatterTest {
         TimetableEntry e = new TimetableEntry();
         assertEquals("?", NotificationFormatter.subject(e));
     }
+
+    @Test
+    void truncate_neverSplitsAnEmojiSurrogatePair() {
+        String s = "ab\uD83D\uDCDAcd";               // "ab📚cd" — 📚 is two chars
+        assertEquals("ab…", NotificationFormatter.truncate(s, 3), "cut inside 📚 backs off before it");
+        assertEquals("ab\uD83D\uDCDA…", NotificationFormatter.truncate(s, 4));
+    }
+
+    @Test
+    void prefix_leavesShortAndBmpTextAlone() {
+        assertEquals("abc", NotificationFormatter.prefix("abc", 5));
+        assertEquals("✗ é", NotificationFormatter.prefix("✗ éval", 3));
+    }
 }

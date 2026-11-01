@@ -225,7 +225,7 @@ public final class NotificationPayloadBuilder {
         }
 
         String joined = String.join(" · ", tokens.subList(0, Math.min(3, tokens.size())));
-        return joined.length() <= 72 ? joined : joined.substring(0, 70) + "…";
+        return joined.length() <= 72 ? joined : NotificationFormatter.prefix(joined, 70) + "…";
     }
 
     // -------------------------------------------------------------------------

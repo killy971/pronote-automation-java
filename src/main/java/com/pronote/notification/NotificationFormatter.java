@@ -61,7 +61,19 @@ public final class NotificationFormatter {
 
     /** Truncates with an ellipsis if longer than {@code maxLen}. */
     public static String truncate(String s, int maxLen) {
-        return s.length() <= maxLen ? s : s.substring(0, maxLen) + "…";
+        return s.length() <= maxLen ? s : prefix(s, maxLen) + "…";
+    }
+
+    /**
+     * The first {@code maxLen} chars of {@code s}, one fewer if the cut would fall inside a
+     * surrogate pair. Emoji outside the BMP (📚, 📅, 📝…) are two Java chars; splitting one
+     * leaves a lone surrogate, which no encoder can write — ntfy and email show it as {@code ?}.
+     */
+    public static String prefix(String s, int maxLen) {
+        if (s.length() <= maxLen) return s;
+        int end = maxLen;
+        if (end > 0 && Character.isHighSurrogate(s.charAt(end - 1))) end--;
+        return s.substring(0, end);
     }
 
     // ---- subject helpers (enrichedSubject with fallback) --------------------

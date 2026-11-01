@@ -125,6 +125,15 @@ class MainDiffModeRegressionTest {
         assertTrue(preview.contains("DS synthétique volcans"), "upcoming eval label must be in the body");
         assertTrue(preview.contains("15,5/20"), "new grade must be in the body");
         assertTrue(preview.contains("🏫 Vie scolaire"));
+        // The title is capped at 72 chars; the cut must not split an emoji into a lone
+        // surrogate, which reaches the phone as "?".
+        for (int i = 0; i < preview.length(); i++) {
+            char c = preview.charAt(i);
+            boolean paired = Character.isHighSurrogate(c)
+                    ? i + 1 < preview.length() && Character.isLowSurrogate(preview.charAt(++i))
+                    : !Character.isLowSurrogate(c);
+            assertTrue(paired, "lone surrogate at " + i + " in: " + preview);
+        }
 
         // Views are regenerated from the current snapshot
         assertTrue(Files.exists(env.timetableViewDir.resolve("index.html")));
