@@ -76,7 +76,7 @@ Fixed by taking the actual win instead:
   after login, so the file kept its post-login order counter while the run went on consuming
   values (observed on a real run: 9 in the file, 29 by the end). Every counter value the file
   offered had already been spent, so the server would reject a restored session regardless of its
-  age. `runFetch` now saves again after the last Pronote request (step 7b), which captures the
+  age. `FetchRunner` now saves again after the last Pronote request, which captures the
   advanced counter and stamps the new `lastUsedAt` field that the age check reads.
 - `lastUsedAt` measures time since the session was last *used*, not since login. Sessions written
   before the field existed fall back to `createdAt`; a session with neither timestamp reports
@@ -88,7 +88,7 @@ Fixed by taking the actual win instead:
 
 Fixed on three fronts:
 
-- **It is announced.** `runFetch` now builds the error notifier *before* the lockout check and
+- **It is announced.** `FetchRunner` now builds the error notifier *before* the lockout check and
   catches `LockoutException` to `sendErrorAlert(..., "verrouillage", ...)`. Previously the
   exception unwound straight to `Main.main`'s catch, which only logs and exits 1 — no ntfy alert,
   unlike every other pipeline phase — so the sync stopped silently and the first symptom was

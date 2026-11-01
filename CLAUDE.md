@@ -35,6 +35,8 @@ Target runtime: **Raspberry Pi (Raspbian)**, triggered by two systemd timers —
 | `--mode <mode>` | No (default: `fetch`) | Run mode: `fetch` (full online pipeline), `views` (regenerate HTML from last snapshot, offline), `diff` (re-run diff between last two snapshots + re-notify, offline), `validate` (parse `manual-entries.yaml`, report what would be merged, no network/snapshot/notification side-effects). |
 | `--dry-run` | No | In `fetch` and `diff` modes, log the notification payload to stdout instead of delivering it. Has no effect in `views`/`validate` mode. |
 
+Pronote credentials (`pronote.baseUrl/username/password`) are only required — and only validated — in `fetch` mode. The offline modes (`views`, `diff`, `validate`) run without them.
+
 **Make targets:**
 
 | Target | Description |
@@ -54,8 +56,26 @@ Target runtime: **Raspberry Pi (Raspbian)**, triggered by two systemd timers —
 ## Architecture Summary
 
 ```
-Main (runFetch / runViews / runDiff / runValidate)
- ├── ConfigLoader              → loads config.yaml (SnakeYAML)
+Main — CLI parsing + config loading + mode dispatch only
+ └── pipeline/ — one runner per mode + shared steps
+      ├── FetchRunner           → online: lockout, session, scrape (via FetchSource), merge manual
+      │                           entries, empty-fetch guard, diff, notify, persist, render
+      ├── ViewsRunner           → offline: regenerate HTML from snapshots (manual entries re-injected
+      │                           fresh, subject enrichment re-applied)
+      ├── DiffRunner            → offline: re-diff latest vs archive, re-notify, re-render
+      ├── ValidateRunner        → offline: check manual-entries.yaml, no side effects
+      ├── FetchSource           → the network seam of fetch: five scrapers + attachment download +
+      │                           session save (PronoteFetchSource in production, fakes in tests)
+      ├── SnapshotSet           → loads the 5 per-type snapshots (latest or previous) per feature flags
+      ├── DiffStage             → per-type diff + AssignmentDiffFilter + TimetableDiffFilter → DiffBundle
+      ├── ManualEntryMerger     → strip-then-inject merge of manual entries + attachment staging
+      ├── NotificationDispatcher→ gate + send/preview change notifications, error alerts
+      └── ViewPipeline          → per-type renderers (with subject colours/icons) + portal index +
+                                  GitPublisher wiring (a view runs only when feature flag AND
+                                  *View.enabled are both set)
+
+Shared modules used by the runners:
+ ├── ConfigLoader              → loads config.yaml (SnakeYAML); credentials validated in fetch mode only
  ├── ManualEntryLoader         → loads manual-entries.yaml (assignments + upcoming evals + attachments)
  ├── SubjectEnricher           → resolves enrichedSubject from subject (+optional teacher)
  ├── LockoutGuard              → halts job after N consecutive login failures (self-clearing)
@@ -79,8 +99,11 @@ Main (runFetch / runViews / runDiff / runValidate)
  └── GitPublisher              → optional: mirror view dirs into a GitHub Pages repo
 ```
 
+Value types carrying one run's state through the pipeline:
+`DataSet` (the five domain lists), `DiffBundle` (the five `DiffResult`s + `hasChanges()`).
+
 All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counter state).
-`Main.java` is the only orchestration point — it wires everything together.
+Orchestration lives in `com.pronote.pipeline`; `Main.java` only parses the CLI and dispatches.
 
 ---
 
@@ -89,7 +112,14 @@ All modules are **stateless except `PronoteSession`** (mutable AES key/IV/counte
 | Package | Class | Responsibility |
 |---|---|---|
 | `cli` | `CliOptions` | Parses `--config`, `--mode`, `--features`, `--dry-run`; `applyFeatureOverride` mutates `FeaturesConfig`; throws `IllegalArgumentException` on unknown feature names |
-| `config` | `ConfigLoader` | Load + validate YAML; fail fast |
+| `pipeline` | `FetchRunner`, `ViewsRunner`, `DiffRunner`, `ValidateRunner` | One orchestrator per `--mode`; wired by `Main`. `FetchRunner.runWith(FetchSource, …)` is everything after the login |
+| `pipeline` | `FetchSource` / `PronoteFetchSource` | The only network-facing seam of fetch mode; the end-to-end tests substitute canned data |
+| `pipeline` | `SnapshotSet` | Loads the five per-type snapshots (`latest`/`previous`) according to feature flags; `allAbsent()` is the first-run condition |
+| `pipeline` | `DiffStage` | Per-type diff (empty diff when no previous snapshot) + both post-diff filters; produces `DiffBundle` |
+| `pipeline` | `ManualEntryMerger` | Strip-then-inject merge of manual assignments / upcoming evals (fetch and views) + manual attachment staging |
+| `pipeline` | `NotificationDispatcher` | Gate + send (or dry-run preview) change notifications; error-alert helpers |
+| `pipeline` | `ViewPipeline` | Per-type view rendering with subject colour/icon resolvers, portal index (written to `portalView.outputDirectory`), GitPublisher wiring; a view is active only when its feature flag **and** `*View.enabled` are both set |
+| `config` | `ConfigLoader` | Load + validate YAML; fail fast. `load(path, requireCredentials)` — credentials are checked in fetch mode only |
 | `config` | `ManualEntryLoader` | Parse `manual-entries.yaml` into `Assignment` + synthetic `TimetableEntry(isEval=true)` lists. Stable IDs prefixed `manual:` (`ManualEntryLoader.ID_PREFIX`); explicit `id:` field optional. Also parses the `attachments:` block into `AttachmentRef`s. |
 | `config` | `SubjectEnricher` | Resolve `enrichedSubject` from raw subject (+optional teacher); two-pass rule eval, strips teacher prefixes ("M.", "Mme") |
 | `safety` | `LockoutGuard` | Track login failures in `data/lockout.json`; auto-clear after the cooldown; flag the once-per-episode alert |
@@ -187,7 +217,7 @@ request plus a rate-limiter wait on every run. See the Session Reuse section bel
 - The lockout **clears itself** once `safety.lockoutCooldownMinutes` (default 360) have elapsed since
   the last failure, so a transient outage self-heals; a genuinely bad password still backs off to a
   handful of attempts per day. Set the cooldown to `0` to require deleting `data/lockout.json`.
-- A lockout is **announced once per episode** via the error-alert channel. `runFetch` builds the
+- A lockout is **announced once per episode** via the error-alert channel. `FetchRunner` builds the
   error notifier *before* the lockout check for exactly this reason — otherwise the exception
   unwinds to `main()` with no alert and the sync stops silently. `LockoutException.isAlertPending()`
   stays true until the caller confirms delivery with `markLockoutAlerted()`, so a failed send is
@@ -196,7 +226,7 @@ request plus a rate-limiter wait on every run. See the Session Reuse section bel
 - Never add retry loops around `PronoteAuthenticator.login()`.
 
 ### Empty Fetches
-- `EmptyFetchGuard` aborts `runFetch` — before the diff, the notification and the snapshot write —
+- `EmptyFetchGuard` aborts the fetch — before the diff, the notification and the snapshot write —
   when **every** enabled data type fetched zero items from Pronote and at least one of them held
   Pronote data in the previous snapshot. That is the signature of a session the server has stopped
   honouring, and without the guard the run announces the whole snapshot as removed and then
@@ -216,8 +246,8 @@ request plus a rate-limiter wait on every run. See the Session Reuse section bel
   succeed for a back-to-back invocation — manual testing, a retried run — never across a normal
   cron interval. Do not "fix" reuse by adding a keep-alive daemon: at ~720 pings/day versus 27
   logins/day it is more traffic and more bot-like, and it contradicts the short-lived CLI design.
-- `runFetch` saves the session a **second** time, right after the last Pronote request
-  (step 7b). This stamps `lastUsedAt` and captures the order counter the run advanced to.
+- `FetchRunner` saves the session a **second** time, right after the last Pronote request
+  (`FetchSource.saveSession()`). This stamps `lastUsedAt` and captures the order counter the run advanced to.
   Without it the file keeps its post-login counter, every value of which the server has already
   consumed — so a reused session would be rejected outright and the probe could never succeed
   even back-to-back.
@@ -231,7 +261,7 @@ request plus a rate-limiter wait on every run. See the Session Reuse section bel
 
 ## Coding Conventions
 
-- **No Spring, no DI framework** — dependencies are wired manually in `Main.java`.
+- **No Spring, no DI framework** — dependencies are wired manually in `Main.java` and the `pipeline` runners.
 - **No checked exceptions propagated publicly** — each module defines its own `RuntimeException` subclass.
 - **Jackson tree model** (`JsonNode`) is used for all Pronote JSON parsing — do not add POJO deserialization for Pronote responses (field names change between instances).
 - **SnakeYAML** for config only — not for Pronote data.
@@ -263,7 +293,22 @@ Test reports: `build/reports/tests/test/index.html`
 - **No personal data** — all tests use only synthetic fixtures (fake URLs like `https://example.invalid/`, fake subjects like `SYN_MATHS`, future dates like `2030-05-06`). Never commit real credentials, real Pronote URLs, or real student information.
 - **No mocking framework** — stubs are plain inner classes implementing the relevant interface (see `CompositeNotifierTest.RecordingNotifier`).
 - **No network** — scraper tests drive `parseXxx(JsonNode, ...)` directly with inline JSON strings; `PronoteSession` is constructed locally with default AES keys.
-- **File isolation** — tests that touch the filesystem use JUnit 5's `@TempDir` for automatic cleanup.
+- **File isolation** — tests that touch the filesystem use JUnit 5's `@TempDir` for automatic cleanup. Gradle runs tests from `build/test-workdir`, so a CWD-relative path never reaches the real `./data`.
+
+### End-to-end pipeline tests
+
+`Main{Fetch,Views,Diff,Validate}ModeRegressionTest` drive the real CLI entry point against an
+isolated install built by `PipelineTestHarness` (generated `config.yaml`, seeded snapshots,
+optional `manual-entries.yaml`), and assert only on the files and notification preview the run
+produces — never on internals, so they survive refactoring. Fetch mode runs through
+`Main.runFetchWith` with a `FakeSource` in place of Pronote; everything after the login is the
+production path. Add a case here whenever a fix changes what a run writes or notifies.
+
+**Golden dump for refactors:** `./gradlew cleanTest test --tests 'com.pronote.Main*' -PgoldenDir=/abs/dir`
+copies every test's outputs into `/abs/dir/<mode>/<test>/` (temp paths masked as `<ROOT>`). Dump
+before and after a change and diff the trees — after masking ISO timestamps and the "Mis à jour le"
+line, and comparing `.json` by content (Jackson's field order is not stable between builds) — to
+prove a refactor changed no output.
 
 ### Adding new tests
 
@@ -286,8 +331,10 @@ For edge cases or newly discovered functions, verify against `vendor/pronotepy/p
    - Build `ObjectNode params` and call `client.encryptedPost(session, ApiFunction.XXX, params)`
    - Map French JSON fields to the domain object
    - Log unmapped/unexpected structures at `WARN` level with the raw node
-5. Add snapshot load/save + diff in `Main.java` following the existing assignment/timetable pattern.
-6. Add the new type to `NotificationPayloadBuilder.build(...)` in `notification/NotificationPayloadBuilder.java`.
+5. Wire the new type through the pipeline: add it to `DataSet`, `DiffBundle`, `SnapshotSet`,
+   `DiffStage`, `FetchSource`/`PronoteFetchSource`, the save step in `FetchRunner`, and the load
+   steps in `ViewsRunner`.
+6. Add the new type to `NotificationPayloadBuilder.build(...)` and `DiffReporter.record(...)`.
 
 ### Parent account scoping — two independent mechanisms
 
@@ -372,7 +419,7 @@ produce links that silently 404.
 
 ## Static HTML Views
 
-After each successful fetch, `Main.java` regenerates the view files **unconditionally** (steps 10–14) regardless of whether a diff was detected — keeping the rendered output in sync with the latest snapshot.
+After each successful fetch, `FetchRunner` regenerates the view files **unconditionally** regardless of whether a diff was detected — keeping the rendered output in sync with the latest snapshot.
 
 ### View types and config blocks
 
@@ -382,13 +429,13 @@ After each successful fetch, `Main.java` regenerates the view files **unconditio
 | `assignmentView` | `AssignmentViewRenderer` | `./data/views/assignments/` | Single page grouped by date with weekly separators; eval cards merge into matching subject group |
 | `evaluationView` | `EvaluationViewRenderer` | `./data/views/evaluations/` | Bilan view (`index.html`) + per-subject summary (`summary.html`) with subject-average badge |
 | `schoolLifeView` | `SchoolLifeViewRenderer` | `./data/views/school-life/` | Absences / delays / observations |
-| (portal) | `PortalIndexHtmlGenerator` | `./data/views/index.html` | Card grid linking to whatever per-type views are enabled |
+| `portalView` | `PortalIndexHtmlGenerator` | `./data/views/index.html` | Card grid linking to whatever per-type views are enabled. `portalView.outputDirectory` (default `./data/views`) must be the common parent of the per-view output dirs for the relative links to work |
 
 Common keys per block:
 
 | Key | Default | Description |
 |---|---|---|
-| `enabled` | `true` | Set to `false` to skip generation of that view |
+| `enabled` | `true` | Set to `false` to skip generation of that view. A view is also skipped — in every mode — when its `features.*` flag is off |
 | `outputDirectory` | see above | Where HTML files are written |
 | `daysAhead` (timetable only) | `5` | Number of upcoming **weekdays** to generate, starting from today |
 | `newBadgeDays` (assignment only) | `2` | Show a "Nouveau" badge on assignment cards whose `assignedDate` is within the last N days. Set to `0` to disable. |
@@ -400,7 +447,7 @@ All files are self-contained (CSS embedded inline; minimal JS only for the eval-
 ### Editing `subjectEnrichment` rules
 
 `enrichedSubject` is computed at fetch time and **persisted** into the snapshot, so a snapshot
-written before a rule change carries stale values. `runViews` calls
+written before a rule change carries stale values. `ViewsRunner` calls
 `AssignmentTeacherResolver.reEnrichFromConfig`, which re-applies the rules to both timetable
 entries and assignments in memory before rendering — so `make views` reflects a rule edit
 immediately, offline, without a login.
@@ -438,9 +485,9 @@ a response we already fetch. It is **excluded from `DiffEngine`** (same mixin as
 `enrichedSubject`) because a school recolouring a subject is not a change worth a notification per
 lesson.
 
-Only the timetable carries colours, so `Main.colorResolver(config, timetable)` builds the resolver
-from the timetable list and hands the same instance to the assignment and evaluation renderers —
-that is what keeps an assignment card the same colour as its lesson.
+Only the timetable carries colours, so `ViewPipeline` builds the resolver from the timetable list
+for every renderer — timetable, assignment and evaluation alike — which is what keeps an
+assignment card the same colour as its lesson.
 
 **Raw subject in, enriched subject out.** The timetable colours a lesson by its *raw* subject
 (`colors.styleAttr(e.getSubject())`) because that is the key Pronote's own colour arrives under;
@@ -518,9 +565,9 @@ Two blocks:
 - `evaluations:` → produces **synthetic `TimetableEntry(isEval=true)`** objects merged into the **timetable** snapshot. (See the terminology section at the top of this file — these are upcoming events, not past `CompetenceEvaluation` results.)
 
 Key behaviours:
-- **All manual IDs are prefixed `manual:`**. `runViews` strips entries whose ID starts with `manual:` from the snapshot before re-injecting fresh from YAML — so edits take effect without a full fetch. `ManualEntryLoaderTest` pins this invariant.
+- **All manual IDs are prefixed `manual:`**. `ManualEntryMerger` strips entries whose ID starts with `manual:` from the snapshot before re-injecting fresh from YAML — so edits take effect without a full fetch. `ManualEntryLoaderTest` pins this invariant.
 - **Stable IDs**: an optional `id:` field on either block produces `manual:<id>` directly; otherwise the fallback scheme is `manual:<subject>@<date>@<description-or-name>`. Use `id:` whenever you anticipate editing the description/name — without it, fixing a typo creates a "removed + new" notification pair.
-- **Manual evals get their times resolved against the timetable** (`resolveManualEvalTimes` in `Main`): subject + teacher match (most specific), then subject-only fallback, then 08:00–09:00 placeholder.
+- **Manual evals get their times resolved against the timetable** (`AssignmentTeacherResolver.resolveManualEvalTimes`, called by `ManualEntryMerger`): subject + teacher match (most specific), then subject-only fallback, then 08:00–09:00 placeholder.
 - **Manual assignments with `teacher:` set skip the timetable-based teacher lookup** in `reEnrichAssignmentsWithTeacher`, so the user's explicit choice always wins.
 
 ### Manual attachments

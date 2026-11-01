@@ -9,7 +9,7 @@ Pragmatic standards for this codebase. Enforce clarity, minimalism, and Java 21 
 1. **Clarity over cleverness** — the next reader matters more than the author's satisfaction.
 2. **Minimum necessary complexity** — do not design for hypothetical futures.
 3. **Fail fast, fail loudly** — validate at boundaries; propagate errors without swallowing them.
-4. **No frameworks** — dependencies are wired manually in `Main.java`. No Spring, no DI container.
+4. **No frameworks** — dependencies are wired manually in `Main.java` and the `pipeline` runners. No Spring, no DI container.
 
 ---
 
@@ -185,8 +185,10 @@ String subject = node.get("Matiere").get("V").get("L").asText();
 2. Add the API function to `ApiFunction.java`.
 3. Create a domain class implementing `Identifiable` in `com.pronote.domain`.
 4. Create `XxxScraper.java` in `com.pronote.scraper`, following the `AssignmentScraper` pattern.
-5. Add snapshot load/save + diff wiring in `Main.java`.
-6. Add the new type to `NotificationPayloadBuilder.build(...)` in `notification/NotificationPayloadBuilder.java`.
+5. Wire the new type through the pipeline package: `DataSet`, `DiffBundle`, `SnapshotSet`,
+   `DiffStage`, `FetchSource`/`PronoteFetchSource`, and the save/load steps in the mode runners.
+6. Add the new type to `NotificationPayloadBuilder.build(...)` and `DiffReporter.record(...)`.
+7. Extend the end-to-end tests (`MainFetchModeRegressionTest` and friends) with the new type.
 
 Check the pronotepy implementation of your specific function to determine:
 - Whether `ressource` must be added to params (required by some APIs, not others).
@@ -198,15 +200,20 @@ Check the pronotepy implementation of your specific function to determine:
 
 ```
 src/main/java/com/pronote/
-├── Main.java               orchestration only — no business logic
+├── Main.java               CLI parsing + config loading + mode dispatch — no business logic
 ├── cli/                    CliOptions
+├── pipeline/               per-mode runners (FetchRunner, ViewsRunner, DiffRunner, ValidateRunner)
+│                           + shared steps (FetchSource, SnapshotSet, DiffStage, ManualEntryMerger,
+│                           NotificationDispatcher, ViewPipeline)
 ├── config/                 AppConfig, ConfigLoader, ManualEntryLoader, SubjectEnricher
-├── safety/                 LockoutGuard, RateLimiter
+├── safety/                 LockoutGuard, EmptyFetchGuard, RateLimiter
 ├── auth/                   CryptoHelper, PronoteSession, PronoteAuthenticator, SessionStore
 ├── client/                 PronoteHttpClient, ApiFunction
-├── scraper/                *Scraper, AssignmentTeacherResolver, AttachmentDownloader
-├── domain/                 pure data + Identifiable
-├── persistence/            SnapshotStore, DiffEngine, DiffResult, FieldChange, DiffReporter, TimetableDiffFilter
+├── scraper/                *Scraper, AssignmentTeacherResolver, AttachmentDownloader,
+│                           ManualAttachmentStager, AttachmentPaths
+├── domain/                 pure data + Identifiable, DataSet, TimetableSlots
+├── persistence/            SnapshotStore, DiffEngine, DiffResult, DiffBundle, FieldChange,
+│                           DiffReporter, AssignmentDiffFilter, TimetableDiffFilter
 └── notification/           NotificationFormatter, NotificationPayloadBuilder,
                             NotificationService, NotificationPayload, *Notifier
 ```
